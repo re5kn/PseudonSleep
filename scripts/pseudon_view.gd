@@ -203,7 +203,7 @@ func _smooth(pts: PackedVector2Array, times: int) -> PackedVector2Array:
 	return pts
 
 
-## おてつだいボーナスの光の玉。help_bonus 個の玉が、それぞれ傾きを 180°/個数 ずつずらした別の軌道を回る。
+## おてつだいボーナスの光の玉。help_bonus 個の玉が、それぞれ傾きの違う別の軌道（_orbit_point）を回る。
 ## front なら手前側（楕円の下半分）にある軌跡と玉だけ、そうでなければ奥側だけを描く。奥ほど小さく薄くする
 func _draw_orbs(front: bool) -> void:
 	for i in help_bonus:
@@ -238,9 +238,12 @@ func _orb_angle(i: int) -> float:
 	return _t * ORBIT_SPEED * (1.0 + ORBIT_SPEED_STEP * i) + TAU * i / help_bonus
 
 
-## i 番目の軌道で角度 a の位置。横長の楕円を 180°/個数 × i だけ傾ける（sin(a) が正なら手前側）
+## i 番目の軌道で角度 a の位置。横長の楕円を 180°/個数 × i だけ傾ける（sin(a) が正なら手前側）。
+## 1個と2個のときは、1個目を左上から右下、2個目を右上から左下への斜めの軌道にする
 func _orbit_point(i: int, a: float) -> Vector2:
 	var tilt := PI * i / help_bonus
+	if help_bonus <= 2:
+		tilt = PI / 4 if i == 0 else -PI / 4
 	return ORBIT_CENTER + Vector2(cos(a) * ORBIT_RADIUS.x, sin(a) * ORBIT_RADIUS.y).rotated(tilt)
 
 
