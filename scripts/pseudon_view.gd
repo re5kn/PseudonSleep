@@ -1,6 +1,7 @@
 extends Node2D
 ## パチモンの見た目（images/pseudon.png のおばけ）。所持数があれば頭上にアイコン、スキル発動時は「!」を出す。
 ## アイコンが出ていないとき（タップで設定パネルを開けるとき）は「…」の吹き出しを出す。
+## おてつだいボーナスの数だけ、体のまわりを光の玉が回る。
 
 const ItemArt = preload("res://scripts/item_art.gd")
 const HeadMark = preload("res://scripts/head_mark.gd")
@@ -33,6 +34,13 @@ const RAINBOW_SPEED := 0.4
 const RAINBOW_SAT := 0.45
 ## 結び目のブローチ（赤い宝石）の色
 const BROOCH_COLOR := Color(0.86, 0.2, 0.26)
+## おてつだいボーナスの光の玉が回る楕円（体の中心からの位置と半径）と、1秒に回る角度（ラジアン）
+const ORBIT_CENTER := Vector2(0, 8)
+const ORBIT_RADIUS := Vector2(96, 26)
+const ORBIT_SPEED := 1.3
+## 光の玉の芯の半径と、まわりの光の色
+const ORB_RADIUS := 6.0
+const ORB_GLOW := Color(1.0, 0.95, 0.6)
 
 var show_icon := false
 ## 設定パネルを開ける印（「…」の吹き出し）を出すか
@@ -42,6 +50,8 @@ var exclaim_count := 0
 var exclaim_anim := 0.0
 ## おやすみリボンの段階（Params.ribbon_tier）。1 以上なら首もとに蝶ネクタイをつける
 var ribbon_tier := 0
+## おてつだいボーナスの数（Params.help_bonus_count）。その数だけ光の玉が体のまわりを回る
+var help_bonus := 0
 var _t := 0.0
 
 
@@ -82,10 +92,14 @@ func _draw() -> void:
 	var shadow_s := 1.0 - float_y / 60.0
 	draw_colored_polygon(ItemArt.ellipse(Vector2(0, BODY_RY + 8), BODY_RX * 0.8 * shadow_s, 12 * shadow_s), Color(0, 0, 0, 0.22))
 	draw_set_transform(Vector2(0, -float_y), 0.0, Vector2.ONE)
+	# 光の玉は奥側を体より先に、手前側を体のあとに描いて、体のまわりを回って見えるようにする
+	_draw_orbs(false)
 	_draw_body()
 	if ribbon_tier > 0:
 		draw_set_transform(Vector2(0, -float_y) + BOWTIE_POS, 0.0, Vector2.ONE * BOWTIE_SCALE)
 		_draw_bowtie()
+		draw_set_transform(Vector2(0, -float_y), 0.0, Vector2.ONE)
+	_draw_orbs(true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if show_icon:
 		_draw_icon(-float_y)
@@ -182,6 +196,30 @@ func _smooth(pts: PackedVector2Array, times: int) -> PackedVector2Array:
 			out.append(a.lerp(b, 0.75))
 		pts = out
 	return pts
+
+
+## おてつだいボーナスの光の玉。help_bonus 個を等間隔に並べて楕円の上を回す。
+## front なら手前側（楕円の下半分）の玉だけ、そうでなければ奥側の玉だけを描く。奥の玉は小さく薄くする
+func _draw_orbs(front: bool) -> void:
+	for i in help_bonus:
+		var a := _t * ORBIT_SPEED + TAU * i / help_bonus
+		var depth := sin(a)
+		if (depth >= 0.0) != front:
+			continue
+		var p := ORBIT_CENTER + Vector2(cos(a) * ORBIT_RADIUS.x, depth * ORBIT_RADIUS.y)
+		var s := 0.85 + 0.25 * depth
+		var alpha := 0.75 + 0.25 * depth
+		# 通ったあとに薄い光の尾を残す
+		for k in range(1, 5):
+			var b := a - k * 0.12
+			var q := ORBIT_CENTER + Vector2(cos(b) * ORBIT_RADIUS.x, sin(b) * ORBIT_RADIUS.y)
+			draw_circle(q, ORB_RADIUS * s * (1.0 - k * 0.17), Color(ORB_GLOW, alpha * 0.28 * (1.0 - k * 0.22)))
+		# 外側ほど薄い光を重ねて、白い芯がぼんやり光って見えるようにする
+		var pulse := 1.0 + 0.12 * sin(_t * 5.0 + i * 1.7)
+		for k in 4:
+			draw_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
+		draw_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
+		draw_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
 
 
 ## 4つの角があるきらめき

@@ -1511,6 +1511,7 @@ func _format_hours(sec: float) -> String:
 
 func _refresh() -> void:
 	pseudon.ribbon_tier = sim.params.ribbon_tier()
+	pseudon.help_bonus = sim.params.help_bonus_count
 	hours_label.text = "%d時間" % hours
 	advance_button.text = "%d時間分すすめる" % hours
 	genki_button.text = "げんき：81以上で固定" if sim.genki_mode == Sim.GenkiMode.ALWAYS_HIGH else "げんき：%dから減少" % sim.genki_start
