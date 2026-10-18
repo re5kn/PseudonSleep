@@ -40,8 +40,9 @@ const ORBIT_CENTER := Vector2(0, -8)
 const ORBIT_RADIUS := Vector2(104, 30)
 const ORBIT_SPEED := 1.3
 const ORBIT_SPEED_STEP := 0.12
-## 軌道の線の色
-const ORBIT_LINE := Color(1.0, 0.95, 0.6, 0.22)
+## 光の玉が通ったあとに残す軌跡の長さ（円周の1/4）と、軌跡を描く点の数
+const TRAIL_ARC := PI / 2
+const TRAIL_STEPS := 48
 ## 光の玉の芯の半径と、まわりの光の色
 const ORB_RADIUS := 6.0
 const ORB_GLOW := Color(1.0, 0.95, 0.6)
@@ -203,33 +204,38 @@ func _smooth(pts: PackedVector2Array, times: int) -> PackedVector2Array:
 
 
 ## おてつだいボーナスの光の玉。help_bonus 個の玉が、それぞれ傾きを 180°/個数 ずつずらした別の軌道を回る。
-## front なら手前側（楕円の下半分）の軌道の線と玉だけ、そうでなければ奥側だけを描く。奥の玉は小さく薄くする
+## front なら手前側（楕円の下半分）にある軌跡と玉だけ、そうでなければ奥側だけを描く。奥ほど小さく薄くする
 func _draw_orbs(front: bool) -> void:
 	for i in help_bonus:
-		# 軌道の線（半周ぶん）
-		var line := PackedVector2Array()
-		for k in 33:
-			var b := PI * k / 32.0 + (0.0 if front else PI)
-			line.append(_orbit_point(i, b))
-		draw_polyline(line, ORBIT_LINE, 1.5, true)
+		var a := _orb_angle(i)
+		# 通ったあとに円周の1/4ぶんの光の軌跡を残す。玉から離れるほど細く薄くする
+		for k in range(TRAIL_STEPS, 0, -1):
+			var b := a - TRAIL_ARC * k / TRAIL_STEPS
+			if (sin(b) >= 0.0) != front:
+				continue
+			var fade := 1.0 - float(k) / TRAIL_STEPS
+			var d := sin(b)
+			var r := ORB_RADIUS * (0.85 + 0.25 * d) * (0.35 + 0.65 * fade)
+			draw_circle(_orbit_point(i, b), r, Color(ORB_GLOW, (0.75 + 0.25 * d) * 0.35 * fade))
 	for i in help_bonus:
-		var a := _t * ORBIT_SPEED * (1.0 + ORBIT_SPEED_STEP * i) + TAU * i / help_bonus
+		var a := _orb_angle(i)
 		var depth := sin(a)
 		if (depth >= 0.0) != front:
 			continue
 		var p := _orbit_point(i, a)
 		var s := 0.85 + 0.25 * depth
 		var alpha := 0.75 + 0.25 * depth
-		# 通ったあとに薄い光の尾を残す
-		for k in range(1, 5):
-			var q := _orbit_point(i, a - k * 0.12)
-			draw_circle(q, ORB_RADIUS * s * (1.0 - k * 0.17), Color(ORB_GLOW, alpha * 0.28 * (1.0 - k * 0.22)))
 		# 外側ほど薄い光を重ねて、白い芯がぼんやり光って見えるようにする
 		var pulse := 1.0 + 0.12 * sin(_t * 5.0 + i * 1.7)
 		for k in 4:
 			draw_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
 		draw_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
 		draw_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
+
+
+## i 番目の玉が軌道の上でいまいる角度
+func _orb_angle(i: int) -> float:
+	return _t * ORBIT_SPEED * (1.0 + ORBIT_SPEED_STEP * i) + TAU * i / help_bonus
 
 
 ## i 番目の軌道で角度 a の位置。横長の楕円を 180°/個数 × i だけ傾ける（sin(a) が正なら手前側）
