@@ -1,6 +1,7 @@
 extends Node2D
 ## パチモンの見た目（images/pseudon.png のおばけ）。所持数があれば頭上にアイコン、スキル発動時は「!」を出す。
 ## アイコンが出ていないとき（タップで設定パネルを開けるとき）は「…」の吹き出しを出す。
+## おてつだいボーナスの数だけ、体のまわりを光の玉が回る。
 
 const ItemArt = preload("res://scripts/item_art.gd")
 const HeadMark = preload("res://scripts/head_mark.gd")
@@ -33,6 +34,18 @@ const RAINBOW_SPEED := 0.4
 const RAINBOW_SAT := 0.45
 ## 結び目のブローチ（赤い宝石）の色
 const BROOCH_COLOR := Color(0.86, 0.2, 0.26)
+## おてつだいボーナスの光の玉が回る軌道。原子核のまわりの電子のように、玉ごとに傾きの違う楕円を回る。
+## 楕円の中心（体の中心）と半径、1秒に回る角度（ラジアン）。軌道ごとに速さを少しずつ変える
+const ORBIT_CENTER := Vector2(0, -8)
+const ORBIT_RADIUS := Vector2(104, 30)
+const ORBIT_SPEED := 1.3
+const ORBIT_SPEED_STEP := 0.12
+## 光の玉が通ったあとに残す軌跡の長さ（円周の1/4）と、軌跡を描く点の数
+const TRAIL_ARC := PI / 2
+const TRAIL_STEPS := 48
+## 光の玉の芯の半径と、まわりの光の色
+const ORB_RADIUS := 6.0
+const ORB_GLOW := Color(1.0, 0.95, 0.6)
 
 var show_icon := false
 ## 設定パネルを開ける印（「…」の吹き出し）を出すか
@@ -42,6 +55,8 @@ var exclaim_count := 0
 var exclaim_anim := 0.0
 ## おやすみリボンの段階（Params.ribbon_tier）。1 以上なら首もとに蝶ネクタイをつける
 var ribbon_tier := 0
+## おてつだいボーナスの数（Params.help_bonus_count）。その数だけ光の玉が体のまわりを回る
+var help_bonus := 0
 var _t := 0.0
 
 
@@ -82,10 +97,14 @@ func _draw() -> void:
 	var shadow_s := 1.0 - float_y / 60.0
 	draw_colored_polygon(ItemArt.ellipse(Vector2(0, BODY_RY + 8), BODY_RX * 0.8 * shadow_s, 12 * shadow_s), Color(0, 0, 0, 0.22))
 	draw_set_transform(Vector2(0, -float_y), 0.0, Vector2.ONE)
+	# 光の玉は奥側を体より先に、手前側を体のあとに描いて、体のまわりを回って見えるようにする
+	_draw_orbs(false)
 	_draw_body()
 	if ribbon_tier > 0:
 		draw_set_transform(Vector2(0, -float_y) + BOWTIE_POS, 0.0, Vector2.ONE * BOWTIE_SCALE)
 		_draw_bowtie()
+		draw_set_transform(Vector2(0, -float_y), 0.0, Vector2.ONE)
+	_draw_orbs(true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if show_icon:
 		_draw_icon(-float_y)
@@ -182,6 +201,50 @@ func _smooth(pts: PackedVector2Array, times: int) -> PackedVector2Array:
 			out.append(a.lerp(b, 0.75))
 		pts = out
 	return pts
+
+
+## おてつだいボーナスの光の玉。help_bonus 個の玉が、それぞれ傾きの違う別の軌道（_orbit_point）を回る。
+## front なら手前側（楕円の下半分）にある軌跡と玉だけ、そうでなければ奥側だけを描く。奥ほど小さく薄くする
+func _draw_orbs(front: bool) -> void:
+	for i in help_bonus:
+		var a := _orb_angle(i)
+		# 通ったあとに円周の1/4ぶんの光の軌跡を残す。玉から離れるほど細く薄くする
+		for k in range(TRAIL_STEPS, 0, -1):
+			var b := a - TRAIL_ARC * k / TRAIL_STEPS
+			if (sin(b) >= 0.0) != front:
+				continue
+			var fade := 1.0 - float(k) / TRAIL_STEPS
+			var d := sin(b)
+			var r := ORB_RADIUS * (0.85 + 0.25 * d) * (0.35 + 0.65 * fade)
+			draw_circle(_orbit_point(i, b), r, Color(ORB_GLOW, (0.75 + 0.25 * d) * 0.35 * fade))
+	for i in help_bonus:
+		var a := _orb_angle(i)
+		var depth := sin(a)
+		if (depth >= 0.0) != front:
+			continue
+		var p := _orbit_point(i, a)
+		var s := 0.85 + 0.25 * depth
+		var alpha := 0.75 + 0.25 * depth
+		# 外側ほど薄い光を重ねて、白い芯がぼんやり光って見えるようにする
+		var pulse := 1.0 + 0.12 * sin(_t * 5.0 + i * 1.7)
+		for k in 4:
+			draw_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
+		draw_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
+		draw_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
+
+
+## i 番目の玉が軌道の上でいまいる角度
+func _orb_angle(i: int) -> float:
+	return _t * ORBIT_SPEED * (1.0 + ORBIT_SPEED_STEP * i) + TAU * i / help_bonus
+
+
+## i 番目の軌道で角度 a の位置。横長の楕円を 180°/個数 × i だけ傾ける（sin(a) が正なら手前側）。
+## 1個と2個のときは、1個目を左上から右下、2個目を右上から左下への斜めの軌道にする
+func _orbit_point(i: int, a: float) -> Vector2:
+	var tilt := PI * i / help_bonus
+	if help_bonus <= 2:
+		tilt = PI / 4 if i == 0 else -PI / 4
+	return ORBIT_CENTER + Vector2(cos(a) * ORBIT_RADIUS.x, sin(a) * ORBIT_RADIUS.y).rotated(tilt)
 
 
 ## 4つの角があるきらめき
