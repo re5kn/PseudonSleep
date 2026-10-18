@@ -34,10 +34,14 @@ const RAINBOW_SPEED := 0.4
 const RAINBOW_SAT := 0.45
 ## 結び目のブローチ（赤い宝石）の色
 const BROOCH_COLOR := Color(0.86, 0.2, 0.26)
-## おてつだいボーナスの光の玉が回る楕円（体の中心からの位置と半径）と、1秒に回る角度（ラジアン）
-const ORBIT_CENTER := Vector2(0, 8)
-const ORBIT_RADIUS := Vector2(96, 26)
+## おてつだいボーナスの光の玉が回る軌道。原子核のまわりの電子のように、玉ごとに傾きの違う楕円を回る。
+## 楕円の中心（体の中心）と半径、1秒に回る角度（ラジアン）。軌道ごとに速さを少しずつ変える
+const ORBIT_CENTER := Vector2(0, -8)
+const ORBIT_RADIUS := Vector2(104, 30)
 const ORBIT_SPEED := 1.3
+const ORBIT_SPEED_STEP := 0.12
+## 軌道の線の色
+const ORBIT_LINE := Color(1.0, 0.95, 0.6, 0.22)
 ## 光の玉の芯の半径と、まわりの光の色
 const ORB_RADIUS := 6.0
 const ORB_GLOW := Color(1.0, 0.95, 0.6)
@@ -198,21 +202,27 @@ func _smooth(pts: PackedVector2Array, times: int) -> PackedVector2Array:
 	return pts
 
 
-## おてつだいボーナスの光の玉。help_bonus 個を等間隔に並べて楕円の上を回す。
-## front なら手前側（楕円の下半分）の玉だけ、そうでなければ奥側の玉だけを描く。奥の玉は小さく薄くする
+## おてつだいボーナスの光の玉。help_bonus 個の玉が、それぞれ傾きを 180°/個数 ずつずらした別の軌道を回る。
+## front なら手前側（楕円の下半分）の軌道の線と玉だけ、そうでなければ奥側だけを描く。奥の玉は小さく薄くする
 func _draw_orbs(front: bool) -> void:
 	for i in help_bonus:
-		var a := _t * ORBIT_SPEED + TAU * i / help_bonus
+		# 軌道の線（半周ぶん）
+		var line := PackedVector2Array()
+		for k in 33:
+			var b := PI * k / 32.0 + (0.0 if front else PI)
+			line.append(_orbit_point(i, b))
+		draw_polyline(line, ORBIT_LINE, 1.5, true)
+	for i in help_bonus:
+		var a := _t * ORBIT_SPEED * (1.0 + ORBIT_SPEED_STEP * i) + TAU * i / help_bonus
 		var depth := sin(a)
 		if (depth >= 0.0) != front:
 			continue
-		var p := ORBIT_CENTER + Vector2(cos(a) * ORBIT_RADIUS.x, depth * ORBIT_RADIUS.y)
+		var p := _orbit_point(i, a)
 		var s := 0.85 + 0.25 * depth
 		var alpha := 0.75 + 0.25 * depth
 		# 通ったあとに薄い光の尾を残す
 		for k in range(1, 5):
-			var b := a - k * 0.12
-			var q := ORBIT_CENTER + Vector2(cos(b) * ORBIT_RADIUS.x, sin(b) * ORBIT_RADIUS.y)
+			var q := _orbit_point(i, a - k * 0.12)
 			draw_circle(q, ORB_RADIUS * s * (1.0 - k * 0.17), Color(ORB_GLOW, alpha * 0.28 * (1.0 - k * 0.22)))
 		# 外側ほど薄い光を重ねて、白い芯がぼんやり光って見えるようにする
 		var pulse := 1.0 + 0.12 * sin(_t * 5.0 + i * 1.7)
@@ -220,6 +230,12 @@ func _draw_orbs(front: bool) -> void:
 			draw_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
 		draw_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
 		draw_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
+
+
+## i 番目の軌道で角度 a の位置。横長の楕円を 180°/個数 × i だけ傾ける（sin(a) が正なら手前側）
+func _orbit_point(i: int, a: float) -> Vector2:
+	var tilt := PI * i / help_bonus
+	return ORBIT_CENTER + Vector2(cos(a) * ORBIT_RADIUS.x, sin(a) * ORBIT_RADIUS.y).rotated(tilt)
 
 
 ## 4つの角があるきらめき
