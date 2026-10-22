@@ -259,6 +259,18 @@ static func skill_pmf(k: int, p: float, ceiling: int, max_stock: int, miss: int,
 	return pmf
 
 
+## 連続不発の回数（予約されるまでに続けて不発になる回数）の理論上の平均。
+## k 回以上続く確率は (1−p)^k（上限 ceiling より先は続かない）なので、平均はその k = 1〜ceiling の和
+static func miss_run_mean(p: float, ceiling: int) -> float:
+	var q := 1.0 - clampf(p, 0.0, 1.0)
+	var m := 0.0
+	var r := 1.0
+	for k in maxi(0, ceiling):
+		r *= q
+		m += r
+	return m
+
+
 ## おてつだいをせずに時間だけ進める（おてつだいを休んでいる妖精用）。休んでいるあいだはげんきも減らない
 func idle(seconds: float) -> void:
 	elapsed_sec += seconds

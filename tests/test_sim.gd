@@ -919,6 +919,8 @@ func _test_distributions() -> void:
 	sp = Sim.skill_pmf(30, 0.039, 65, 2, 36, 0)
 	check(sp[0] == 0.0, "不発36から30回なら天井で0回はない")
 	check(Sim.skill_pmf(5, 0.5, 65, 2, 0, 2).size() == 1, "ストックが上限なら0回だけ")
+	check(absf(Sim.miss_run_mean(0.039, 65) - 0.961 * (1.0 - pow(0.961, 65)) / 0.039) < 1e-9, "連続不発の理論上の平均は (1−p)(1−(1−p)^65)/p")
+	check(Sim.miss_run_mean(0.0, 5) == 5.0 and Sim.miss_run_mean(1.0, 65) == 0.0 and Sim.miss_run_mean(0.5, 0) == 0.0, "確率0なら上限、確率1・上限0なら0")
 
 
 	var d := Dist.new()
