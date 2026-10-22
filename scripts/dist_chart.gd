@@ -29,6 +29,8 @@ const TAIL_BANDS := [
 ]
 ## 目立たせる回数の棒（連続不発の上限など）
 const ACCENT_COLOR := Color("d9534f")
+## 理論上の平均の破線（ref_mean）
+const REF_COLOR := Color("3a9a5b")
 const AXIS_COLOR := Color("8a7660")
 const TEXT_COLOR := Color("5a4632")
 const FONT_SIZE := 14
@@ -49,6 +51,10 @@ var accent := -1
 var count_total := 0
 ## 横軸に必ず入れる回数の範囲（x > y ならなし）
 var x_range := Vector2i(0, -1)
+## 分布の平均の破線を引くか
+var show_mean := true
+## 0 以上なら、その位置に理論上の平均の破線を REF_COLOR で引く
+var ref_mean := -1.0
 
 
 func show_dist(d: Dist, actual_count: int) -> void:
@@ -116,8 +122,12 @@ func _draw() -> void:
 	draw_line(plot.position, Vector2(plot.position.x, plot.end.y), AXIS_COLOR, 2.0)
 
 	# 期待値の位置（棒の中心が回数にあたる）
-	var mx := plot.position.x + ((mean - first) / width + 0.5) * bar_w
-	draw_dashed_line(Vector2(mx, plot.position.y), Vector2(mx, plot.end.y), MEAN_COLOR, 4.0, 6.0)
+	if show_mean:
+		var mx := plot.position.x + ((mean - first) / width + 0.5) * bar_w
+		draw_dashed_line(Vector2(mx, plot.position.y), Vector2(mx, plot.end.y), MEAN_COLOR, 4.0, 6.0)
+	if ref_mean >= 0.0:
+		var rx := plot.position.x + ((ref_mean - first) / width + 0.5) * bar_w
+		draw_dashed_line(Vector2(rx, plot.position.y), Vector2(rx, plot.end.y), REF_COLOR, 4.0, 6.0)
 
 	# 横軸（回数）の目盛り。棒が多いときは 1, 2, 5 × 10^n 本おきに間引き、きりのよい回数に置く
 	var step := roundi(_nice_ceil(ceilf(bars / 8.0)))
