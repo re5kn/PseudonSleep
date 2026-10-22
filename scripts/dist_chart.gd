@@ -27,6 +27,8 @@ const TAIL_BANDS := [
 	[0.85, 0.95, Color("dcefd6")],
 	[0.95, 1.0, Color("b9dfae")],
 ]
+## 目立たせる回数の棒（連続不発の上限など）
+const ACCENT_COLOR := Color("d9534f")
 const AXIS_COLOR := Color("8a7660")
 const TEXT_COLOR := Color("5a4632")
 const FONT_SIZE := 14
@@ -36,6 +38,13 @@ const Y_TICKS := 5
 var dist: Dist
 var actual := 0
 var mean := 0.0
+## 期待値まわり・下位・上位の背景を塗るか
+var bands := true
+## 棒をまとめずに並べる上限の本数
+var max_bars := MAX_BARS
+var x_title := "回数"
+## ACCENT_COLOR で塗る回数（−1 ならなし）。実際の回数の棒の色が優先
+var accent := -1
 
 
 func show_dist(d: Dist, actual_count: int) -> void:
@@ -52,7 +61,7 @@ func _draw() -> void:
 	var span := dist.span(TAIL)
 	var first := mini(span.x, actual)
 	var last := maxi(span.y, actual)
-	var width := ceili(float(last - first + 1) / MAX_BARS)
+	var width := ceili(float(last - first + 1) / max_bars)
 	# まとめる単位の倍数から始めて、棒の区切りをそろえる
 	first -= posmod(first, width)
 	var bars := (last - first) / width + 1
@@ -69,18 +78,8 @@ func _draw() -> void:
 	var plot := Rect2(PAD_LEFT, PAD_TOP, size.x - PAD_LEFT - PAD_RIGHT, size.y - PAD_TOP - PAD_BOTTOM)
 	var bar_w := plot.size.x / bars
 
-	# 期待値まわり70%の範囲の背景。端は小数なので棒の途中に来る（棒をまとめていても回数の位置で塗る）
-	var band := dist.central(CENTRAL)
-	var bx0 := plot.position.x + (band.x - first + 0.5) / width * bar_w
-	var bx1 := plot.position.x + (band.y - first + 0.5) / width * bar_w
-	draw_rect(Rect2(bx0, plot.position.y, bx1 - bx0, plot.size.y), BAND_COLOR)
-	# 下位5%・10%、上位10%・5%の背景（グラフの端より外は塗らない）。期待値まわりの範囲とすき間なく並ぶ
-	for t in TAIL_BANDS:
-		var a := plot.position.x + (dist.quantile(t[0]) - first + 0.5) / width * bar_w
-		var z := plot.position.x + (dist.quantile(t[1]) - first + 0.5) / width * bar_w
-		a = clampf(a, plot.position.x, plot.end.x)
-		z = clampf(z, plot.position.x, plot.end.x)
-		draw_rect(Rect2(a, plot.position.y, z - a, plot.size.y), t[2])
+	if bands:
+		_draw_bands(plot, first, width, bar_w)
 
 	# 縦軸（確率質量、%）の目盛り
 	for i in Y_TICKS + 1:
@@ -96,8 +95,9 @@ func _draw() -> void:
 		var h := plot.size.y * masses[b] / y_max if y_max > 0.0 else 0.0
 		var lo := first + b * width
 		var has_actual := actual >= lo and actual < lo + width
+		var has_accent := accent >= lo and accent < lo + width
 		var r := Rect2(plot.position.x + b * bar_w + 1, plot.end.y - h, maxf(1.0, bar_w - 2), h)
-		draw_rect(r, ACTUAL_COLOR if has_actual else BAR_COLOR)
+		draw_rect(r, ACTUAL_COLOR if has_actual else ACCENT_COLOR if has_accent else BAR_COLOR)
 
 	draw_line(Vector2(plot.position.x, plot.end.y), plot.end, AXIS_COLOR, 2.0)
 	draw_line(plot.position, Vector2(plot.position.x, plot.end.y), AXIS_COLOR, 2.0)
@@ -106,9 +106,11 @@ func _draw() -> void:
 	var mx := plot.position.x + ((mean - first) / width + 0.5) * bar_w
 	draw_dashed_line(Vector2(mx, plot.position.y), Vector2(mx, plot.end.y), MEAN_COLOR, 4.0, 6.0)
 
-	# 横軸（回数）の目盛り。棒が多いときは間引く
-	var step := maxi(1, ceili(bars / 8.0))
-	for b in range(0, bars, step):
+	# 横軸（回数）の目盛り。棒が多いときは 1, 2, 5 × 10^n 本おきに間引き、きりのよい回数に置く
+	var step := roundi(_nice_ceil(ceilf(bars / 8.0)))
+	for b in bars:
+		if posmod(first / width + b, step) != 0:
+			continue
 		var label := str(first + b * width)
 		if width > 1:
 			label += "〜"
@@ -116,10 +118,25 @@ func _draw() -> void:
 		var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x
 		draw_string(font, Vector2(cx - tw / 2, plot.end.y + FONT_SIZE + 6), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, TEXT_COLOR)
-	var x_title := "回数"
 	var xw := font.get_string_size(x_title, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x
 	draw_string(font, Vector2(plot.end.x - xw, size.y - 4), x_title,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, TEXT_COLOR)
+
+
+## 期待値まわり70%と下位・上位の範囲の背景
+func _draw_bands(plot: Rect2, first: int, width: int, bar_w: float) -> void:
+	# 期待値まわり70%の範囲の背景。端は小数なので棒の途中に来る（棒をまとめていても回数の位置で塗る）
+	var band := dist.central(CENTRAL)
+	var bx0 := plot.position.x + (band.x - first + 0.5) / width * bar_w
+	var bx1 := plot.position.x + (band.y - first + 0.5) / width * bar_w
+	draw_rect(Rect2(bx0, plot.position.y, bx1 - bx0, plot.size.y), BAND_COLOR)
+	# 下位5%・10%、上位10%・5%の背景（グラフの端より外は塗らない）。期待値まわりの範囲とすき間なく並ぶ
+	for t in TAIL_BANDS:
+		var a := plot.position.x + (dist.quantile(t[0]) - first + 0.5) / width * bar_w
+		var z := plot.position.x + (dist.quantile(t[1]) - first + 0.5) / width * bar_w
+		a = clampf(a, plot.position.x, plot.end.x)
+		z = clampf(z, plot.position.x, plot.end.x)
+		draw_rect(Rect2(a, plot.position.y, z - a, plot.size.y), t[2])
 
 
 ## 目盛りの上端（1, 2, 2.5, 5 × 10^n のうち v 以上の最小）
