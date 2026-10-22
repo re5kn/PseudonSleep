@@ -255,6 +255,21 @@ static func skill_pmf(k: int, p: float, ceiling: int, max_stock: int, miss: int,
 	return pmf
 
 
+## 連続不発の回数（スキルが出るまでに続けて不発になる回数）の確率分布。要素 k が「k 回続けて不発になる確率」。
+## ceiling 回より前は (1−p)^k × p、ceiling 回続けて不発なら次は必ず発動するので (1−p)^ceiling。
+static func miss_run_pmf(p: float, ceiling: int) -> PackedFloat64Array:
+	p = clampf(p, 0.0, 1.0)
+	var n := maxi(0, ceiling)
+	var pmf := PackedFloat64Array()
+	pmf.resize(n + 1)
+	var q := 1.0
+	for k in n:
+		pmf[k] = q * p
+		q *= 1.0 - p
+	pmf[n] = q
+	return pmf
+
+
 ## おてつだいをせずに時間だけ進める（おてつだいを休んでいる妖精用）。休んでいるあいだはげんきも減らない
 func idle(seconds: float) -> void:
 	elapsed_sec += seconds
