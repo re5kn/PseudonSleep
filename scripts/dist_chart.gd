@@ -45,6 +45,10 @@ var max_bars := MAX_BARS
 var x_title := "回数"
 ## ACCENT_COLOR で塗る回数（−1 ならなし）。実際の回数の棒の色が優先
 var accent := -1
+## 0 より大きければ、分布を件数 count_total の集計とみなして縦軸を件数で表す
+var count_total := 0
+## 横軸に必ず入れる回数の範囲（x > y ならなし）
+var x_range := Vector2i(0, -1)
 
 
 func show_dist(d: Dist, actual_count: int) -> void:
@@ -61,6 +65,9 @@ func _draw() -> void:
 	var span := dist.span(TAIL)
 	var first := mini(span.x, actual)
 	var last := maxi(span.y, actual)
+	if x_range.x <= x_range.y:
+		first = mini(first, x_range.x)
+		last = maxi(last, x_range.y)
 	var width := ceili(float(last - first + 1) / max_bars)
 	# まとめる単位の倍数から始めて、棒の区切りをそろえる
 	first -= posmod(first, width)
@@ -74,6 +81,9 @@ func _draw() -> void:
 	for m in masses:
 		top = maxf(top, m)
 	var y_max := _nice_ceil(top)
+	if count_total > 0:
+		# 件数の目盛りが整数になるよう、上端は Y_TICKS 以上のきりのよい件数にする
+		y_max = maxf(_nice_ceil(top * count_total), Y_TICKS) / count_total
 
 	var plot := Rect2(PAD_LEFT, PAD_TOP, size.x - PAD_LEFT - PAD_RIGHT, size.y - PAD_TOP - PAD_BOTTOM)
 	var bar_w := plot.size.x / bars
@@ -86,7 +96,7 @@ func _draw() -> void:
 		var v := y_max * i / float(Y_TICKS)
 		var y := plot.end.y - plot.size.y * i / float(Y_TICKS)
 		draw_line(Vector2(plot.position.x, y), Vector2(plot.end.x, y), Color(AXIS_COLOR, 0.25), 1.0)
-		var label := _percent(v)
+		var label := "%d件" % roundi(v * count_total) if count_total > 0 else _percent(v)
 		var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x
 		draw_string(font, Vector2(plot.position.x - tw - 6, y + FONT_SIZE * 0.35), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, TEXT_COLOR)
@@ -97,6 +107,9 @@ func _draw() -> void:
 		var has_actual := actual >= lo and actual < lo + width
 		var has_accent := accent >= lo and accent < lo + width
 		var r := Rect2(plot.position.x + b * bar_w + 1, plot.end.y - h, maxf(1.0, bar_w - 2), h)
+		if has_actual and h < 3.0:
+			# 高さ0でも実際の回数の位置がわかるよう、軸の上に短く出す
+			r = Rect2(r.position.x, plot.end.y - 3.0, r.size.x, 3.0)
 		draw_rect(r, ACTUAL_COLOR if has_actual else ACCENT_COLOR if has_accent else BAR_COLOR)
 
 	draw_line(Vector2(plot.position.x, plot.end.y), plot.end, AXIS_COLOR, 2.0)
