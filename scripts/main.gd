@@ -920,24 +920,37 @@ func _update_dist_popup() -> void:
 		_update_miss_dist()
 
 
-## 連続不発の回数の分布（スキルが出るまでに続けて不発になる回数）。今の不発カウントの棒を紫、上限の棒を赤にする
+## 実際に起きた連続不発の回数の集計（スキルが予約されるまでに続けて不発だった回数、予約1回で1件）。
+## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤にする
 func _update_miss_dist() -> void:
-	var p := sim.params.skill_chance()
+	var runs := sim.miss_runs
+	var total := 0
+	var longest := 0
+	for k in runs.size():
+		total += runs[k]
+		if runs[k] > 0:
+			longest = k
 	var ceiling := maxi(0, sim.params.skill_ceiling)
-	var d := Dist.new()
-	d.p = Sim.miss_run_pmf(p, ceiling)
-	var miss := mini(sim.skill_miss, ceiling)
-	miss_chart.accent = ceiling
-	miss_chart.show_dist(d, miss)
+	var miss := sim.skill_miss
 	var lines := PackedStringArray()
-	lines.append("スキルが出るまでに続けて不発になる回数です（スキル確率 %.1f%%、連続不発上限 %d回）。" % [p * 100.0, ceiling])
-	lines.append("[color=%s]期待値 %.1f回[/color]（破線）　[color=%s]上限の%d回まで続く確率 %s[/color]" % [
-		DistChart.MEAN_COLOR.to_html(false), d.mean(),
-		DistChart.ACCENT_COLOR.to_html(false), ceiling, _pct_text(d.mass(ceiling))])
-	# 今の不発カウントから上限に届くのは、残りの抽選がすべて不発のとき
-	lines.append("[color=%s]今の連続不発 %d回[/color]：%d回以上続く確率 %s、ここから上限まで続く確率 %s" % [
-		DistChart.ACTUAL_COLOR.to_html(false), miss, miss, _pct_text(d.at_least(miss)),
-		_pct_text(pow(1.0 - p, ceiling - miss))])
+	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
+	miss_chart.visible = total > 0
+	if total > 0:
+		var d := Dist.new()
+		d.p = PackedFloat64Array()
+		d.p.resize(runs.size())
+		for k in runs.size():
+			d.p[k] = float(runs[k]) / total
+		miss_chart.accent = ceiling
+		miss_chart.count_total = total
+		miss_chart.x_range = Vector2i(0, ceiling)
+		miss_chart.show_dist(d, miss)
+		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（破線）　最長 %d回　[color=%s]上限の%d回で予約 %d件[/color]" % [
+			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
+			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
+	else:
+		lines.append("まだスキルが予約されていません。")
+	lines.append("[color=%s]今の連続不発 %d回[/color]（予約されたら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), miss])
 	miss_summary.text = "\n".join(lines)
 
 
