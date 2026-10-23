@@ -12,8 +12,8 @@ const RY := 19.0
 const MAX_SCALE := 5.0
 ## 浮いているときの糸の長さ
 const FLOAT_HEIGHT := 64.0
-## 割れる直前に膨らむとき、倍率が1増えるごとに内側（左）へ寄せる量（4倍で画面の中央に来る）
-const OVER_SHIFT := 75.0
+## 割れる直前に膨らむとき、倍率が1増えるごとに内側（左）へ寄せる量（3倍で画面の中央に来る）
+const OVER_SHIFT := 112.0
 const FONT_SIZE := 17.0
 const LINE := Color("0d2738")
 const RUBBER := Color("ff7f9e")
