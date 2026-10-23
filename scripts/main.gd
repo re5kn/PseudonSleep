@@ -995,7 +995,7 @@ func _set_log_slide(t: float) -> void:
 func _update_log() -> void:
 	log_title.text = "おてつだいの記録（全%d回）" % sim.totals["helps"]
 	var slots: Array = sim.params.ingredients.map(func(ing: Dictionary) -> String: return ing["id"])
-	log_table.set_log(sim.help_log, slots, sim.params.active_ingredients().size())
+	log_table.set_log(sim.help_log, slots, sim.params.active_ingredients().size(), sim.elapsed_sec)
 
 
 ## 設定パネルは画面の左端に付けるので、中央寄せのずらし（_layer）は使わない
