@@ -27,6 +27,7 @@ func _init() -> void:
 	_test_subskill_slots()
 	_test_skill_ceiling()
 	_test_skill_ceiling_stock2()
+	_test_miss_runs_tap()
 	_test_skill_miss_reset_on_tap()
 	_test_tap_log()
 	_test_add_genki()
@@ -422,6 +423,27 @@ func _test_skill_ceiling() -> void:
 	var kinds := helps.map(func(e: Dictionary) -> int: return e["skill"])
 	check(kinds.size() == 32 and kinds[5] == Sim.Skill.CEILING and kinds[31] == Sim.Skill.CEILING and kinds.count(Sim.Skill.CEILING) == 2
 		and kinds.count(Sim.Skill.HIT) == 0, "記録では6回目と32回目が天井 (%d件)" % kinds.size())
+	check(s.miss_runs.size() == 6 and s.miss_runs[5] == 2 and Array(s.miss_runs).count(0) == 5, "連続不発の集計：5回不発のあと予約が2回")
+	s.reset()
+	check(s.miss_runs.is_empty(), "リセットで連続不発の集計も消える")
+
+
+## 連続不発の集計は予約の時点で1件。ストックがあるタップで途切れた分は数えない
+func _test_miss_runs_tap() -> void:
+	print("連続不発の集計とタップ")
+	var p := Params.new()
+	p.max_carry = 1000000
+	p.skill_prob = 0.0
+	p.skill_ceiling = 5
+	p.max_skill_stock = 2
+	var s := Sim.new(p)
+	var t := p.help_sec() * 0.45
+	s.advance(t * 6 + 1)
+	check(s.miss_runs.size() == 6 and s.miss_runs[5] == 1 and s.skill_stock == 1, "6回目の予約の時点で、タップ前でも5回が1件")
+	s.advance(t * 3)
+	s.drop()
+	s.advance(t * 6)
+	check(s.miss_runs.size() == 6 and s.miss_runs[5] == 2 and s.miss_runs[3] == 0, "タップで途切れた3回は数えず、次も5回不発のあと予約")
 
 
 ## ストック2: 1回目は天井で発動、そのあと不発カウントは0から数え直し、2回目は天井に届く前に通常の抽選で発動する
@@ -897,6 +919,14 @@ func _test_distributions() -> void:
 	sp = Sim.skill_pmf(30, 0.039, 65, 2, 36, 0)
 	check(sp[0] == 0.0, "不発36から30回なら天井で0回はない")
 	check(Sim.skill_pmf(5, 0.5, 65, 2, 0, 2).size() == 1, "ストックが上限なら0回だけ")
+	var mr := Sim.miss_run_pmf(0.039, 65)
+	check(mr.size() == 66 and absf(_pmf_sum(mr) - 1.0) < 1e-12, "連続不発の理論上の分布：0〜65回で合計1")
+	check(absf(mr[0] - 0.039) < 1e-12 and absf(mr[65] - pow(0.961, 65)) < 1e-12, "0回は p、上限65回は 0.961^65")
+	check(absf(Sim.pmf_mean(mr) - Sim.miss_run_mean(0.039, 65)) < 1e-9, "分布の平均は理論上の平均と同じ")
+	check(Sim.miss_run_pmf(0.5, 0).size() == 1 and Sim.miss_run_pmf(1.0, 65)[0] == 1.0, "上限0・確率1なら必ず0回")
+	check(absf(Sim.miss_run_mean(0.039, 65) - 0.961 * (1.0 - pow(0.961, 65)) / 0.039) < 1e-9, "連続不発の理論上の平均は (1−p)(1−(1−p)^65)/p")
+	check(Sim.miss_run_mean(0.0, 5) == 5.0 and Sim.miss_run_mean(1.0, 65) == 0.0 and Sim.miss_run_mean(0.5, 0) == 0.0, "確率0なら上限、確率1・上限0なら0")
+
 
 	var d := Dist.new()
 	d.add(Dist.binomial(2, 0.5))

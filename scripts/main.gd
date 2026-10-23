@@ -37,6 +37,10 @@ const SLEEP_POPUP_W := 380.0
 const DIST_POPUP_W := 600.0
 const DIST_POPUP_Y := 300.0
 const DIST_CHART_H := 300.0
+## スキル回数の欄の下に出す連続不発の分布のグラフの高さ
+const MISS_CHART_H := 220.0
+## 連続不発の分布は上限（初期値65）までまとめずに棒を並べる
+const MISS_MAX_BARS := 100
 ## 睡眠時間（分）の刻みと範囲
 const SLEEP_STEP_MIN := 30
 const SLEEP_MIN_MIN := 30
@@ -154,6 +158,10 @@ var dist_popup_kind := ""
 var dist_title: Label
 var dist_chart: DistChart
 var dist_summary: RichTextLabel
+## スキル回数の欄だけに出す、連続不発の分布（見出し・グラフ・説明）
+var miss_section: VBoxContainer
+var miss_chart: DistChart
+var miss_summary: RichTextLabel
 var blocker: Control
 var settings: SettingsPanel
 var settings_scrim: ColorRect
@@ -811,15 +819,34 @@ func _build_dist_popup(layer: CanvasLayer) -> void:
 	dist_chart.custom_minimum_size = Vector2(0, DIST_CHART_H)
 	v.add_child(dist_chart)
 
-	dist_summary = RichTextLabel.new()
-	dist_summary.bbcode_enabled = true
-	dist_summary.fit_content = true
-	dist_summary.scroll_active = false
-	dist_summary.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dist_summary.custom_minimum_size = Vector2(DIST_POPUP_W - 40, 0)
-	dist_summary.add_theme_font_size_override("normal_font_size", 17)
-	dist_summary.add_theme_color_override("default_color", TEXT_DARK)
+	dist_summary = _dist_text()
 	v.add_child(dist_summary)
+
+	miss_section = VBoxContainer.new()
+	miss_section.add_theme_constant_override("separation", 8)
+	v.add_child(miss_section)
+	miss_section.add_child(HSeparator.new())
+	miss_section.add_child(_label("スキル連続不発の分布", 20))
+	miss_chart = DistChart.new()
+	miss_chart.custom_minimum_size = Vector2(0, MISS_CHART_H)
+	miss_chart.bands = false
+	miss_chart.max_bars = MISS_MAX_BARS
+	miss_chart.x_title = "連続不発の回数"
+	miss_section.add_child(miss_chart)
+	miss_summary = _dist_text()
+	miss_section.add_child(miss_summary)
+
+
+func _dist_text() -> RichTextLabel:
+	var t := RichTextLabel.new()
+	t.bbcode_enabled = true
+	t.fit_content = true
+	t.scroll_active = false
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	t.custom_minimum_size = Vector2(DIST_POPUP_W - 40, 0)
+	t.add_theme_font_size_override("normal_font_size", 17)
+	t.add_theme_color_override("default_color", TEXT_DARK)
+	return t
 
 
 func _on_hud_meta_clicked(meta: Variant) -> void:
@@ -837,10 +864,17 @@ func _on_hud_meta_clicked(meta: Variant) -> void:
 	dist_popup_kind = kind
 	_update_dist_popup()
 	dist_popup.reset_size()
-	dist_popup.position = Vector2((VIEW_SIZE.x - DIST_POPUP_W) / 2, DIST_POPUP_Y)
 	dist_popup.visible = true
+	_place_dist_popup()
 	# 説明文の折り返しが決まってから高さを合わせる
-	dist_popup.reset_size.call_deferred()
+	_place_dist_popup.call_deferred()
+
+
+## 高さに合わせて置く。下にはみ出すときは上へずらす
+func _place_dist_popup() -> void:
+	dist_popup.reset_size()
+	var y := minf(DIST_POPUP_Y, VIEW_SIZE.y - dist_popup.size.y - 16)
+	dist_popup.position = Vector2((VIEW_SIZE.x - DIST_POPUP_W) / 2, maxf(16.0, y))
 
 
 func _hide_dist_popup() -> void:
@@ -881,6 +915,51 @@ func _update_dist_popup() -> void:
 	lines.append("赤系は下位、青は期待値まわり70%、緑系は上位の範囲です。")
 	lines.append(" ".join(chips))
 	dist_summary.text = "\n".join(lines)
+	miss_section.visible = dist_popup_kind == "skill"
+	if miss_section.visible:
+		_update_miss_dist()
+
+
+## 実際に起きた連続不発の回数の集計（スキルが予約されるまでに続けて不発だった回数、予約1回で1件）。
+## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤、集計の平均を青の破線、理論上の平均を緑の破線、理論上の分布を緑の実線にする
+func _update_miss_dist() -> void:
+	var runs := sim.miss_runs
+	var total := 0
+	var longest := 0
+	for k in runs.size():
+		total += runs[k]
+		if runs[k] > 0:
+			longest = k
+	var ceiling := maxi(0, sim.params.skill_ceiling)
+	var miss := sim.skill_miss
+	var theory := Sim.miss_run_mean(sim.params.skill_chance(), ceiling)
+	# 集計が0件でも、軸と理論上の平均の破線は出す
+	var d := Dist.new()
+	d.p = PackedFloat64Array()
+	d.p.resize(maxi(runs.size(), ceiling + 1))
+	for k in runs.size():
+		d.p[k] = float(runs[k]) / total if total > 0 else 0.0
+	miss_chart.accent = ceiling
+	miss_chart.count_total = maxi(total, 1)
+	miss_chart.x_range = Vector2i(0, ceiling)
+	miss_chart.show_mean = total > 0
+	miss_chart.ref_mean = theory
+	# 理論上の分布は確率のまま、右の目盛り（%）で重ねる。0件のときも出す
+	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling)
+	miss_chart.ref_axis = true
+	miss_chart.show_dist(d, miss)
+	var lines := PackedStringArray()
+	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
+	lines.append("[color=%s]理論上の平均 %.1f回[/color]（緑の破線）" % [DistChart.REF_COLOR.to_html(false), theory])
+	lines.append("[color=%s]理論上の分布[/color]（緑の実線、右の目盛りで確率）" % DistChart.REF_COLOR.to_html(false))
+	if total > 0:
+		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で予約 %d件[/color]" % [
+			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
+			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
+	else:
+		lines.append("まだスキルが予約されていません。")
+	lines.append("[color=%s]今の連続不発 %d回[/color]（予約されたら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), miss])
+	miss_summary.text = "\n".join(lines)
 
 
 ## 実際の回数 x が分布の下側・上側のどちらに寄っているかを「下位○%」「上位○%」で表す。
