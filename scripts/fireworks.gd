@@ -22,9 +22,21 @@ const GRAND_SEC := 3.6
 const GRAND_RAYS := 28
 ## 上から降らすきのみの数
 const BERRIES := 320
+## きのみの絵を描く正方形の一辺（倍率1のきのみが葉まで収まる大きさ）
+const BERRY_TEX := 48
 
-## 粒: {p, v, color, life, max, size, kind}。kind 0=花火の粒 1=金の紙吹雪 2=風船のかけら 3=きのみ
-var _sparks: Array[Dictionary] = []
+## 粒の種類
+enum Kind { SPARK, CONFETTI, SHARD, BERRY }
+## 粒。数千個になるので、1つずつの辞書ではなく種類ごとにまとめた配列に持つ（位置・速さ・色・残り秒・寿命・大きさ・種類）
+var _pos := PackedVector2Array()
+var _vel := PackedVector2Array()
+var _color := PackedColorArray()
+var _life := PackedFloat32Array()
+var _max := PackedFloat32Array()
+var _size := PackedFloat32Array()
+var _kind := PackedByteArray()
+## 落ちてくるきのみの絵（_ready で一度だけ描いておき、毎フレームは貼るだけにする）
+var _berry_tex: Texture2D
 ## これから打ち上げる花火: {at（残り秒）, pos, count, speed, colors, ring}
 var _queue: Array[Dictionary] = []
 var _flash := 0.0
@@ -42,16 +54,32 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.randomize()
+	_berry_tex = _render_berry()
+	set_process(false)
+
+
+## きのみの絵を一度だけ小さな画面に描いて、貼り付け用の絵にする
+func _render_berry() -> Texture2D:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(BERRY_TEX, BERRY_TEX)
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var art := Node2D.new()
+	art.draw.connect(func() -> void: ItemArt.draw_item(art, "berry", Vector2(BERRY_TEX / 2.0, BERRY_TEX / 2.0 + 3.0)))
+	vp.add_child(art)
+	add_child(vp)
+	return vp.get_texture()
 
 
 ## origin で風船を割り、段階 tier の花火を始める。吹き出しを出すまで待つ秒数を返す
 func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> float:
 	var cfg: Dictionary = TIERS[clampi(tier, 1, 4)]
 	_grand = tier >= 4
+	set_process(true)
 	# 風船のかけら
 	for i in 14:
 		var a := _rng.randf() * TAU
-		_add(origin, Vector2.from_angle(a) * _rng.randf_range(120, 260), balloon_color, _rng.randf_range(0.4, 0.7), 5.0, 2)
+		_add(origin, Vector2.from_angle(a) * _rng.randf_range(120, 260), balloon_color, _rng.randf_range(0.4, 0.7), 5.0, Kind.SHARD)
 	var n: int = cfg["bursts"]
 	for i in n:
 		var pos := origin
@@ -79,16 +107,26 @@ func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> flo
 		# 上から降るきのみ（size は絵の倍率）
 		for i in BERRIES:
 			var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
-			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(0.7, 1.15), 3)
+			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(0.7, 1.15), Kind.BERRY)
 	return [0.0, 1.0, 1.4, 1.9, GRAND_SEC][tier]
 
 
 func is_running() -> bool:
-	return not _sparks.is_empty() or not _queue.is_empty()
+	return not _pos.is_empty() or not _queue.is_empty() or not _rings.is_empty() or _grand_t >= 0.0 or _flash > 0.0
+
+
+func spark_count() -> int:
+	return _pos.size()
 
 
 func _add(p: Vector2, v: Vector2, color: Color, life: float, size: float, kind: int) -> void:
-	_sparks.append({"p": p, "v": v, "color": color, "life": life, "max": life, "size": size, "kind": kind})
+	_pos.append(p)
+	_vel.append(v)
+	_color.append(color)
+	_life.append(life)
+	_max.append(life)
+	_size.append(size)
+	_kind.append(kind)
 
 
 func _burst(b: Dictionary) -> void:
@@ -98,15 +136,15 @@ func _burst(b: Dictionary) -> void:
 	for i in count:
 		var a := TAU * i / count + _rng.randf_range(-0.08, 0.08)
 		var v := Vector2.from_angle(a) * speed * _rng.randf_range(0.75, 1.0)
-		_add(b["pos"], v, colors[i % colors.size()], _rng.randf_range(0.9, 1.3), 4.8, 0)
+		_add(b["pos"], v, colors[i % colors.size()], _rng.randf_range(0.9, 1.3), 4.8, Kind.SPARK)
 	if b["ring"]:
 		# 内側にもう一回り小さい輪
 		for i in count / 2:
 			var a := TAU * i / (count / 2)
-			_add(b["pos"], Vector2.from_angle(a) * speed * 0.5, Color.WHITE, 0.8, 3.4, 0)
+			_add(b["pos"], Vector2.from_angle(a) * speed * 0.5, Color.WHITE, 0.8, 3.4, Kind.SPARK)
 	if _grand:
 		for i in 16:
-			_add(b["pos"], Vector2(_rng.randf_range(-160, 160), _rng.randf_range(-280, -40)), GOLD, _rng.randf_range(1.6, 2.4), 5.0, 1)
+			_add(b["pos"], Vector2(_rng.randf_range(-160, 160), _rng.randf_range(-280, -40)), GOLD, _rng.randf_range(1.6, 2.4), 5.0, Kind.CONFETTI)
 		_rings.append({"p": b["pos"], "r": 10.0, "life": 0.6, "max": 0.6, "color": b["colors"][0]})
 	_flash = maxf(_flash, 0.12 if not _grand else 0.5)
 
@@ -118,22 +156,7 @@ func _process(delta: float) -> void:
 		if b["at"] <= 0.0:
 			_queue.erase(b)
 			_burst(b)
-	var alive: Array[Dictionary] = []
-	for s in _sparks:
-		s["life"] -= delta
-		if s["life"] <= 0.0:
-			continue
-		if s["kind"] == 3:
-			# きのみは空気抵抗なしでまっすぐ落ちる
-			s["v"] += Vector2(0, GRAVITY * 0.6 * delta)
-			s["p"] += s["v"] * delta
-			alive.append(s)
-			continue
-		var drag := DRAG * (2.5 if s["kind"] == 1 else 1.0)
-		s["v"] = s["v"] * exp(-drag * delta) + Vector2(0, GRAVITY * (0.4 if s["kind"] == 1 else 1.0) * delta)
-		s["p"] += s["v"] * delta
-		alive.append(s)
-	_sparks = alive
+	_step_sparks(delta)
 	_flash = maxf(0.0, _flash - delta * 1.5)
 	for r in _rings:
 		r["life"] -= delta
@@ -145,6 +168,42 @@ func _process(delta: float) -> void:
 			_grand_t = -1.0
 	_shake()
 	queue_redraw()
+	if not is_running():
+		set_process(false)
+
+
+## 粒を動かす。消えた粒は配列の後ろの粒で埋めて詰める（順番は気にしない）
+func _step_sparks(delta: float) -> void:
+	var drag := exp(-DRAG * delta)
+	var drag_confetti := exp(-DRAG * 2.5 * delta)
+	var fall := Vector2(0, GRAVITY * delta)
+	var n := _pos.size()
+	var i := 0
+	while i < n:
+		_life[i] -= delta
+		if _life[i] <= 0.0:
+			n -= 1
+			_pos[i] = _pos[n]
+			_vel[i] = _vel[n]
+			_color[i] = _color[n]
+			_life[i] = _life[n]
+			_max[i] = _max[n]
+			_size[i] = _size[n]
+			_kind[i] = _kind[n]
+			continue
+		match _kind[i]:
+			Kind.BERRY:
+				# きのみは空気抵抗なしでまっすぐ落ちる
+				_vel[i] += fall * 0.6
+			Kind.CONFETTI:
+				_vel[i] = _vel[i] * drag_confetti + fall * 0.4
+			_:
+				_vel[i] = _vel[i] * drag + fall
+		_pos[i] += _vel[i] * delta
+		i += 1
+	if n < _pos.size():
+		for arr in [_pos, _vel, _color, _life, _max, _size, _kind]:
+			arr.resize(n)
 
 
 ## 大あたりのあいだ、パチモンや風船の層をがたがた揺らす（終わりぎわは弱める）
@@ -167,24 +226,51 @@ func _draw() -> void:
 	for r in _rings:
 		var k: float = r["life"] / r["max"]
 		draw_arc(r["p"], r["r"], 0, TAU, 64, Color(Color.WHITE.lerp(r["color"], 0.4), k * 0.9), 6.0 + 18.0 * k, true)
-	for s in _sparks:
-		var k: float = s["life"] / s["max"]
-		var color: Color = s["color"]
-		match s["kind"]:
-			0:
+	_draw_sparks()
+
+
+## 粒をまとめて描く。花火の尾・頭と紙吹雪は種類ごとに線の束1回で描き、描く回数を減らす
+func _draw_sparks() -> void:
+	var tails := PackedVector2Array()
+	var tail_colors := PackedColorArray()
+	var heads := PackedVector2Array()
+	var head_colors := PackedColorArray()
+	var confetti := PackedVector2Array()
+	var confetti_colors := PackedColorArray()
+	var berries: Array[int] = []
+	for i in _pos.size():
+		var k := _life[i] / _max[i]
+		var p := _pos[i]
+		var color := _color[i]
+		match _kind[i]:
+			Kind.SPARK:
 				# 尾を引く粒。消えぎわはちかちか
-				var tail: Vector2 = s["p"] - s["v"] * 0.06
-				var a := k if k > 0.3 else k * (0.5 + 0.5 * sin(_t * 40.0 + s["p"].x))
-				draw_line(tail, s["p"], Color(color, a * 0.6), s["size"] * 0.8, true)
-				draw_circle(s["p"], s["size"] * (0.6 + 0.4 * k), Color(color.lightened(0.3), a))
-			1:
-				# 金の紙吹雪（ひらひら回る）
-				var w: float = s["size"] * absf(sin(_t * 9.0 + s["p"].y * 0.05))
-				draw_rect(Rect2(s["p"] - Vector2(w, s["size"]) / 2, Vector2(w + 1, s["size"])), Color(color, minf(1.0, k * 2.0)))
-			2:
-				draw_circle(s["p"], s["size"] * k, Color(color, k))
-			3:
-				_draw_berry(s["p"], s["size"])
+				var a := k if k > 0.3 else k * (0.5 + 0.5 * sin(_t * 40.0 + p.x))
+				tails.append(p - _vel[i] * 0.06)
+				tails.append(p)
+				tail_colors.append(Color(color, a * 0.6))
+				var d := _vel[i].normalized() * _size[i] * (0.3 + 0.2 * k)
+				heads.append(p - d)
+				heads.append(p + d)
+				head_colors.append(Color(color.lightened(0.3), a))
+			Kind.CONFETTI:
+				# 金の紙吹雪（ひらひら回るよう横幅を変える）
+				var w := _size[i] * absf(sin(_t * 9.0 + p.y * 0.05)) / 2 + 0.5
+				confetti.append(p - Vector2(w, 0))
+				confetti.append(p + Vector2(w, 0))
+				confetti_colors.append(Color(color, minf(1.0, k * 2.0)))
+			Kind.SHARD:
+				draw_circle(p, _size[i] * k, Color(color, k))
+			Kind.BERRY:
+				berries.append(i)
+	if not tails.is_empty():
+		draw_multiline_colors(tails, tail_colors, 3.4)
+		draw_multiline_colors(heads, head_colors, 6.0)
+	if not confetti.is_empty():
+		draw_multiline_colors(confetti, confetti_colors, 5.0)
+	for i in berries:
+		_draw_berry(_pos[i], _size[i])
+	draw_set_transform(Vector2.ZERO)
 
 
 ## 大あたりの後光: 中心から画面の外まで届く光の筋が回り、色が虹色に移る。真ん中は白く光る
@@ -206,8 +292,7 @@ func _draw_glory() -> void:
 		draw_circle(_center, (220.0 - k * 50.0) * grow * pulse, Color(1, 0.98, 0.85, (0.18 + k * 0.18) * fade))
 
 
-## 落ちてくるきのみ（くるくる回る）
+## 落ちてくるきのみ（くるくる回る）。絵は _ready で描いておいたものを貼る
 func _draw_berry(p: Vector2, scale: float) -> void:
-	draw_set_transform(p, _t * 4.0 + p.x * 0.05)
-	ItemArt.draw_item(self, "berry", Vector2.ZERO, scale)
-	draw_set_transform(Vector2.ZERO)
+	draw_set_transform(p, _t * 4.0 + p.x * 0.05, Vector2(scale, scale))
+	draw_texture(_berry_tex, -Vector2(BERRY_TEX, BERRY_TEX) / 2)
