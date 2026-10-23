@@ -12,6 +12,8 @@ const RY := 19.0
 const MAX_SCALE := 5.0
 ## 浮いているときの糸の長さ
 const FLOAT_HEIGHT := 64.0
+## 割れる直前に2倍まで膨らんだとき、内側（左）へ寄せる量
+const OVER_SHIFT := 140.0
 const FONT_SIZE := 17.0
 const LINE := Color("0d2738")
 const RUBBER := Color("ff7f9e")
@@ -30,6 +32,8 @@ var popped := false
 var _ratio_shown := 0.0
 var _lift := 0.0
 var _appear := 1.0
+## 上限のあたりで割れる前にさらに膨らませる倍率（ふだんは1）
+var _over := 1.0
 var _boing := 0.0
 var _t := 0.0
 
@@ -58,6 +62,7 @@ func pop() -> void:
 ## 割れたあとの新しい風船。しぼんだ状態からふくらんで出てくる
 func respawn(n: int, r: float) -> void:
 	popped = false
+	_over = 1.0
 	count = n
 	ratio = r
 	_ratio_shown = r
@@ -70,15 +75,21 @@ func body_color() -> Color:
 	return RUBBER.lerp(RUBBER_FULL, _ratio_shown)
 
 
+## 割れる直前に sec 秒かけて scale 倍まで膨らませる（上限のあたり）
+func overinflate(scale: float, sec: float) -> void:
+	create_tween().tween_property(self, "_over", scale, sec).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+
+
 func scale_factor() -> float:
-	return (1.0 + (MAX_SCALE - 1.0) * _ratio_shown) * _appear
+	return (1.0 + (MAX_SCALE - 1.0) * _ratio_shown) * _appear * _over
 
 
 ## 糸の結び目（風船の下端）の位置
 func knot() -> Vector2:
 	var ground := Vector2(0, -1)
 	var up := Vector2(sin(_t * 1.3) * 6.0, -FLOAT_HEIGHT + sin(_t * 2.1) * 5.0)
-	return ground.lerp(up, _ease(_lift))
+	# 割れる直前に膨らむときは、画面の右端からはみ出さないよう内側へ寄せる（糸も一緒に）
+	return ground.lerp(up, _ease(_lift)) + Vector2(-OVER_SHIFT * (_over - 1.0), 0)
 
 
 ## 風船の中心（フィールド上の位置）
@@ -108,8 +119,10 @@ func _ease(x: float) -> float:
 func _body_center() -> Vector2:
 	var s := scale_factor()
 	var k := knot()
+	# 割れる直前に膨らんでいるあいだは、張りつめてぷるぷる震える
+	var tremble := Vector2(sin(_t * 61.0), cos(_t * 53.0)) * 5.0 * (_over - 1.0)
 	# 地面ではやや傾いて転がっている
-	return k + Vector2(4.0 * (1.0 - _lift), -RY * s - 3.0 * s)
+	return k + Vector2(4.0 * (1.0 - _lift), -RY * s - 3.0 * s) + tremble
 
 
 func _tag_pos() -> Vector2:
