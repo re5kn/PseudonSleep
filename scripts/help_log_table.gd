@@ -2,7 +2,7 @@ extends Control
 ## おてつだい1回ごとの記録の表。ScrollContainer に入れて使い、見えている行だけ描く。
 ## header = true なら列の見出しだけを描く。
 ## パチモンをタップした時点には、おてつだいの行のあいだに色つきの「タップ」行を挟む。
-## 日ごとの区切り（その日の最後の行のあと）には、その日に集めたきのみ・食材とスキルの予約数のまとめを挟む（#81）。
+## 日ごとの区切りには、その日に集めたきのみ・食材とスキルの予約数のまとめを挟む（#81）。
 
 const ItemArt = preload("res://scripts/item_art.gd")
 const Sim = preload("res://scripts/sim.gd")
@@ -47,29 +47,27 @@ func _init(is_header: bool = false) -> void:
 	custom_minimum_size = Vector2(COL_SKILL.x + COL_SKILL.y, ROW_H)
 
 
-## slots は食材枠の食材 id（枠の順）、active_slots は今解放されている枠の数。
-## now_sec は今の経過秒で、その日（4:00〜翌3:59）が終わっていれば最後の日のまとめも出す
-func set_log(list: Array[Dictionary], slots: Array = [], active_slots: int = 0, now_sec: float = 0.0) -> void:
+## slots は食材枠の食材 id（枠の順）、active_slots は今解放されている枠の数
+func set_log(list: Array[Dictionary], slots: Array = [], active_slots: int = 0) -> void:
 	entries = list
 	slot_ids = slots
 	summaries = day_summaries(entries, slot_ids)
 	help_numbers.resize(entries.size())
 	rows.clear()
 	var k := 0
+	var day := 0
 	for i in entries.size():
 		if not Sim.is_tap(entries[i]):
 			k += 1
 			help_numbers[i] = k
 		else:
 			help_numbers[i] = 0
-		rows.append({"e": i})
-		# その日の最後の行のあとにまとめを入れる
 		var d := day_of(entries[i])
-		var next_day: int = day_of(entries[i + 1]) if i + 1 < entries.size() \
-			else FieldClock.day_and_clock(now_sec)[0]
-		if next_day != d:
+		if d != day:
+			day = d
 			for line in summary_lines(summaries[d], active_slots):
 				rows.append({"day": d, "line": line})
+		rows.append({"e": i})
 	custom_minimum_size.y = ROW_H * maxi(1, rows.size())
 	queue_redraw()
 

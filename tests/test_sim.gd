@@ -507,7 +507,7 @@ func _test_tap_log() -> void:
 	check(not Sim.is_tap(s.help_log[-1]) and s.help_log[-1]["t"] > e["t"], "タップのあとのおてつだいはその後ろ")
 
 
-## 記録の日ごとのまとめ（#81）。各日の終わりに出す。4:00 で日付が変わり、スキルは予約した回で数える
+## 記録の日ごとのまとめ（#81）。4:00 で日付が変わり、スキルは予約した回で数える
 func _test_day_summary() -> void:
 	print("記録の日ごとのまとめ")
 	var slots := ["ing_a", "ing_b", "ing_c"]
@@ -528,12 +528,10 @@ func _test_day_summary() -> void:
 	check(HelpLogTable.summary_lines(sums[1], 1) == [0, 1, 2], "解放1枠でも集めた枠2の行は出す")
 	check(HelpLogTable.summary_lines(sums[2], 3) == [0, 1, 2, 3], "解放3枠ならきのみ＋3行")
 	var table := HelpLogTable.new()
-	table.set_log(list, slots, 1, day + 10.0)
-	check(table.rows.size() == list.size() + 3, "まだ終わっていない2日目のまとめは出さない")
-	check(table.rows[3] == {"e": 3} and table.rows[4] == {"day": 1, "line": 0}, "1日目のまとめは1日目の最後の行（翌3:59まで）のあと")
-	check(table.rows[7] == {"e": 4}, "2日目の記録はまとめのあと")
-	table.set_log(list, slots, 1, day * 2)
-	check(table.rows.size() == list.size() + 3 + 2 and table.rows[9] == {"day": 2, "line": 0}, "翌4:00を過ぎたら2日目のまとめが最後に出る")
+	table.set_log(list, slots, 1)
+	check(table.rows.size() == list.size() + 3 + 2, "まとめの行は各日の先頭に入る")
+	check(table.rows[0] == {"day": 1, "line": 0} and table.rows[3] == {"e": 0}, "1日目のまとめのあとに1日目の記録")
+	check(table.rows[7] == {"day": 2, "line": 0} and table.rows[9] == {"e": 4}, "2日目のまとめは2日目の最初の記録の前")
 	table.free()
 
 
