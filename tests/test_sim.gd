@@ -10,6 +10,7 @@ const FieldClock = preload("res://scripts/field_clock.gd")
 const Presets = preload("res://scripts/presets.gd")
 const Dist = preload("res://scripts/dist.gd")
 const Main = preload("res://scripts/main.gd")
+const HelpLogTable = preload("res://scripts/help_log_table.gd")
 
 var failures := 0
 
@@ -30,6 +31,7 @@ func _init() -> void:
 	_test_miss_runs_tap()
 	_test_skill_miss_reset_on_tap()
 	_test_tap_log()
+	_test_day_summary()
 	_test_add_genki()
 	_test_genki_start()
 	_test_genki_nature()
@@ -525,6 +527,40 @@ func _test_tap_log() -> void:
 	check(s.help_log.size() == 4, "何も持っていないときのタップは記録しない")
 	s.advance(t)
 	check(not Sim.is_tap(s.help_log[-1]) and s.help_log[-1]["t"] > e["t"], "タップのあとのおてつだいはその後ろ")
+
+
+## 記録の日ごとのまとめ（#81）。4:00 で日付が変わり、スキルは予約した回で数える
+func _test_day_summary() -> void:
+	print("記録の日ごとのまとめ")
+	var slots := ["ing_a", "ing_b", "ing_c"]
+	var day := FieldClock.DAY_SEC
+	var list: Array[Dictionary] = [
+		{"t": 100.0, "id": "berry", "amount": 2, "skill": Sim.Skill.HIT},
+		{"t": 200.0, "id": "ing_b", "amount": 3, "skill": Sim.Skill.NONE},
+		{"t": 300.0, "tap": true, "amount": 5, "stock": 1, "ceiling": 0},
+		{"t": day - 1.0, "id": "berry", "amount": 2, "skill": Sim.Skill.CEILING},
+		{"t": day + 1.0, "id": "ing_a", "amount": 1, "skill": Sim.Skill.HIT},
+		{"t": day + 2.0, "id": "", "amount": 0, "skill": Sim.Skill.NONE},
+	]
+	var sums := HelpLogTable.day_summaries(list, slots)
+	check(sums.keys() == [1, 2], "1日目と2日目に分かれる")
+	check(sums[1]["berry"] == 4 and sums[1]["ingredients"] == [0, 3, 0], "1日目 きのみ4・枠2が3（タップは数えない）")
+	check(sums[1]["skill"] == 2 and sums[1]["ceiling"] == 1, "1日目のスキルは予約2回（うち天井1回）")
+	check(sums[2]["berry"] == 0 and sums[2]["ingredients"] == [1, 0, 0] and sums[2]["skill"] == 1 and sums[2]["ceiling"] == 0, "2日目 枠1が1・スキル1回（天井なし）")
+	check(HelpLogTable.summary_lines(sums[1], 1) == [0, 1, 2], "解放1枠でも集めた枠2の行は出す")
+	check(HelpLogTable.summary_lines(sums[2], 3) == [0, 1, 2, 3], "解放3枠ならきのみ＋3行")
+	var table := HelpLogTable.new()
+	table.set_log(list, slots, 1)
+	check(table.rows.size() == list.size() + 3 + 2, "まとめの行は各日の先頭に入る")
+	check(table.rows[0] == {"day": 1, "line": 0} and table.rows[3] == {"e": 0}, "1日目のまとめのあとに1日目の記録")
+	check(table.rows[7] == {"day": 2, "line": 0} and table.rows[9] == {"e": 4}, "2日目のまとめは2日目の最初の記録の前")
+	# まとめの固定表示。1日目は 0〜2 行目（3行）、2日目は 7〜8 行目（2行）
+	var h := HelpLogTable.ROW_H
+	check(table.pinned_at(0.0)[0] == -1, "一番上ではそのまま（固定しない）")
+	check(table.pinned_at(h * 2) == [0, h * 2], "スクロールすると1日目のまとめを上端に固定")
+	check(table.pinned_at(h * 5) == [0, h * 4], "2日目のまとめが近づくと押し上げる")
+	check(table.pinned_at(h * 7.5) == [1, h * 7.5], "2日目のまとめが上端を越えたら入れ替わる")
+	table.free()
 
 
 ## メインスキルでげんきを増減する（#26）。10分ごとに減る区切りはそのまま、0〜150
