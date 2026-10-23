@@ -78,7 +78,8 @@ static func day_of(e: Dictionary) -> int:
 	return FieldClock.day_and_clock(e["t"])[0]
 
 
-## 日ごとに集めた数をまとめる。{n日目: {"berry": 個, "skill": 予約した回数, "ingredients": [枠ごとの個数]}}
+## 日ごとに集めた数をまとめる。
+## {n日目: {"berry": 個, "skill": 予約した回数, "ceiling": うち天井の回数, "ingredients": [枠ごとの個数]}}
 ## 食材は記録の食材 id から枠を引く。スキルは発動（タップ）を待たず、予約した回で数える
 static func day_summaries(list: Array[Dictionary], slots: Array) -> Dictionary:
 	var out := {}
@@ -88,7 +89,7 @@ static func day_summaries(list: Array[Dictionary], slots: Array) -> Dictionary:
 			var ings: Array = []
 			ings.resize(slots.size())
 			ings.fill(0)
-			out[d] = {"berry": 0, "skill": 0, "ingredients": ings}
+			out[d] = {"berry": 0, "skill": 0, "ceiling": 0, "ingredients": ings}
 		if Sim.is_tap(e) or e["id"] == "":
 			continue
 		var sum: Dictionary = out[d]
@@ -99,6 +100,8 @@ static func day_summaries(list: Array[Dictionary], slots: Array) -> Dictionary:
 			sum["berry"] += int(e["amount"])
 		if int(e["skill"]) != Sim.Skill.NONE:
 			sum["skill"] += 1
+		if int(e["skill"]) == Sim.Skill.CEILING:
+			sum["ceiling"] += 1
 	return out
 
 
@@ -170,7 +173,8 @@ func _draw_row(i: int, y: float) -> void:
 				Color(CEILING_COLOR, RESERVED_ALPHA))
 
 
-## 日ごとのまとめの1行。line 0 は「n日目のまとめ」ときのみ・スキルの予約数、1〜 は食材枠ごとの数
+## 日ごとのまとめの1行。line 0 は「n日目のまとめ」ときのみ・スキルの予約数、1〜 は食材枠ごとの数。
+## 天井で出た回があれば、食材枠1の行のスキル欄に記録と同じ色を反転した印で「天井×n」と出す
 func _draw_summary_line(day: int, line: int, y: float) -> void:
 	draw_rect(Rect2(0, y, size.x, ROW_H), DAY_BAND)
 	draw_rect(Rect2(0, y, 5, ROW_H), DAY_COLOR)
@@ -188,6 +192,9 @@ func _draw_summary_line(day: int, line: int, y: float) -> void:
 	_text("食材枠%d" % line, label, y, HORIZONTAL_ALIGNMENT_RIGHT, DAY_COLOR)
 	ItemArt.draw_item(self, slot_ids[line - 1], Vector2(COL_ITEM.x + 18, cy + 2), 0.95)
 	_text("×%d" % sum["ingredients"][line - 1], Vector2(COL_ITEM.x + 42, 100), y, HORIZONTAL_ALIGNMENT_LEFT, TEXT_DARK)
+	if line == 1 and sum["ceiling"] > 0:
+		_exclaim(Vector2(COL_SKILL.x + 20, cy), 1, CEILING_COLOR, Color.WHITE)
+		_text("天井×%d" % sum["ceiling"], Vector2(COL_SKILL.x + 44, 100), y, HORIZONTAL_ALIGNMENT_LEFT, CEILING_COLOR)
 
 
 ## 「n日目」と時刻を、時計と同じ時刻（朝4:00 始まり、4:00 で日付が変わる）で出す
