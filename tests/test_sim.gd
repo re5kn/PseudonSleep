@@ -11,6 +11,7 @@ const Presets = preload("res://scripts/presets.gd")
 const Dist = preload("res://scripts/dist.gd")
 const Main = preload("res://scripts/main.gd")
 const HelpLogTable = preload("res://scripts/help_log_table.gd")
+const Omikuji = preload("res://scripts/omikuji.gd")
 
 var failures := 0
 
@@ -30,6 +31,7 @@ func _init() -> void:
 	_test_skill_ceiling_stock2()
 	_test_miss_runs_tap()
 	_test_skill_miss_reset_on_tap()
+	_test_omikuji()
 	_test_tap_log()
 	_test_day_summary()
 	_test_add_genki()
@@ -428,6 +430,35 @@ func _test_skill_ceiling() -> void:
 	check(s.miss_runs.size() == 6 and s.miss_runs[5] == 2 and Array(s.miss_runs).count(0) == 5, "連続不発の集計：5回不発のあと予約が2回")
 	s.reset()
 	check(s.miss_runs.is_empty(), "リセットで連続不発の集計も消える")
+
+
+func _test_omikuji() -> void:
+	print("おみくじ")
+	var o := Omikuji.new()
+	check(not o.enabled and is_equal_approx(o.chance, 0.10) and o.limit == 10, "初期値は無効・あたり10%・連続はずれの上限10")
+	check(o.draw_for(3)["hits"] == 0 and o.miss == 0, "無効のあいだは引かない")
+	o.enabled = true
+	o.chance = 0.0
+	o.limit = 4
+	var r := o.draw_for(4)
+	check(r["hits"] == 0 and o.miss == 4 and is_equal_approx(o.ratio(), 1.0), "4回続けてはずれ")
+	r = o.draw_for(1)
+	check(r["hits"] == 1 and r["tier"] == Omikuji.Tier.GRAND and o.miss == 0, "上限4なら5回目で必ずあたり（格別の演出）")
+	r = o.draw_for(2)
+	check(r["hits"] == 0 and o.miss == 2, "ストック2なら2回引く")
+	o.chance = 1.0
+	r = o.draw_for(2)
+	check(r["hits"] == 2 and r["tier"] == Omikuji.Tier.MEDIUM and o.miss == 0, "ストック2で2回あたり、演出ははずれ2回から引いた1回目のほう")
+	check(Omikuji.tier_for(0, 9) == Omikuji.Tier.SMALL and Omikuji.tier_for(3, 9) == Omikuji.Tier.MEDIUM
+		and Omikuji.tier_for(6, 9) == Omikuji.Tier.LARGE and Omikuji.tier_for(8, 9) == Omikuji.Tier.LARGE
+		and Omikuji.tier_for(9, 9) == Omikuji.Tier.GRAND, "割合で3段階、上限で格別")
+	o.limit = 0
+	o.chance = 0.0
+	check(o.draw() == Omikuji.Tier.GRAND and is_equal_approx(o.ratio(), 1.0), "上限0なら毎回あたり")
+	o.limit = 10
+	o.miss = 7
+	o.reset()
+	check(o.miss == 0, "リセットではずれ回数を0に戻す")
 
 
 ## 連続不発の集計は予約の時点で1件。ストックがあるタップで途切れた分は数えない
