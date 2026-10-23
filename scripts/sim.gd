@@ -259,6 +259,21 @@ static func skill_pmf(k: int, p: float, ceiling: int, max_stock: int, miss: int,
 	return pmf
 
 
+## 連続不発の回数（予約されるまでに続けて不発になる回数）の理論上の確率分布。要素 k が「k 回続けて不発のあと予約される確率」。
+## ceiling 回より前は (1−p)^k × p、ceiling 回続けて不発なら次は必ず予約されるので (1−p)^ceiling。
+static func miss_run_pmf(p: float, ceiling: int) -> PackedFloat64Array:
+	p = clampf(p, 0.0, 1.0)
+	var n := maxi(0, ceiling)
+	var pmf := PackedFloat64Array()
+	pmf.resize(n + 1)
+	var q := 1.0
+	for k in n:
+		pmf[k] = q * p
+		q *= 1.0 - p
+	pmf[n] = q
+	return pmf
+
+
 ## 連続不発の回数（予約されるまでに続けて不発になる回数）の理論上の平均。
 ## k 回以上続く確率は (1−p)^k（上限 ceiling より先は続かない）なので、平均はその k = 1〜ceiling の和
 static func miss_run_mean(p: float, ceiling: int) -> float:
