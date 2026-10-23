@@ -10,6 +10,8 @@ const MAX_BARS := 60
 const TAIL := 0.0005
 const PAD_LEFT := 64.0
 const PAD_RIGHT := 12.0
+## 右に理論上の分布の目盛り（%）を出すときの右の余白
+const PAD_RIGHT_REF := 52.0
 const PAD_TOP := 12.0
 const PAD_BOTTOM := 44.0
 const BAR_COLOR := Color("f2b56b")
@@ -57,6 +59,8 @@ var show_mean := true
 var ref_mean := -1.0
 ## 空でなければ、理論上の分布（要素 i が「i 回」の確率。dist と同じ割合の単位）を REF_COLOR の実線で重ねる
 var ref_pmf := PackedFloat64Array()
+## true なら ref_pmf を確率のまま、右の目盛り（%）で描く（棒とは別の目盛り）
+var ref_axis := false
 
 
 func show_dist(d: Dist, actual_count: int) -> void:
@@ -95,14 +99,20 @@ func _draw() -> void:
 	var top := 0.0
 	for m in masses:
 		top = maxf(top, m)
+	var ref_max := 0.0
 	for m in refs:
-		top = maxf(top, m)
+		ref_max = maxf(ref_max, m)
+	if not ref_axis:
+		top = maxf(top, ref_max)
 	var y_max := _nice_ceil(top)
 	if count_total > 0:
 		# 件数の目盛りが整数になるよう、上端は Y_TICKS 以上のきりのよい件数にする
 		y_max = maxf(_nice_ceil(top * count_total), Y_TICKS) / count_total
 
-	var plot := Rect2(PAD_LEFT, PAD_TOP, size.x - PAD_LEFT - PAD_RIGHT, size.y - PAD_TOP - PAD_BOTTOM)
+	var pad_right := PAD_RIGHT_REF if ref_axis and not refs.is_empty() else PAD_RIGHT
+	var plot := Rect2(PAD_LEFT, PAD_TOP, size.x - PAD_LEFT - pad_right, size.y - PAD_TOP - PAD_BOTTOM)
+	# 実線の目盛りの上端（右の目盛りなら確率の、そうでなければ棒と同じ上端）
+	var ref_top := _nice_ceil(ref_max) if ref_axis else y_max
 	var bar_w := plot.size.x / bars
 
 	if bands:
@@ -117,6 +127,9 @@ func _draw() -> void:
 		var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x
 		draw_string(font, Vector2(plot.position.x - tw - 6, y + FONT_SIZE * 0.35), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, TEXT_COLOR)
+		if ref_axis and not refs.is_empty():
+			draw_string(font, Vector2(plot.end.x + 6, y + FONT_SIZE * 0.35), _percent(ref_top * i / float(Y_TICKS)),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, REF_COLOR)
 
 	for b in bars:
 		var h := plot.size.y * masses[b] / y_max if y_max > 0.0 else 0.0
@@ -130,10 +143,10 @@ func _draw() -> void:
 		draw_rect(r, ACTUAL_COLOR if has_actual else ACCENT_COLOR if has_accent else BAR_COLOR)
 
 	# 理論上の分布の実線（棒の中心を結ぶ）
-	if not refs.is_empty() and y_max > 0.0:
+	if not refs.is_empty() and ref_top > 0.0:
 		var pts := PackedVector2Array()
 		for b in bars:
-			pts.append(Vector2(plot.position.x + (b + 0.5) * bar_w, plot.end.y - plot.size.y * minf(refs[b] / y_max, 1.0)))
+			pts.append(Vector2(plot.position.x + (b + 0.5) * bar_w, plot.end.y - plot.size.y * minf(refs[b] / ref_top, 1.0)))
 		draw_polyline(pts, REF_COLOR, 2.5, true)
 
 	draw_line(Vector2(plot.position.x, plot.end.y), plot.end, AXIS_COLOR, 2.0)

@@ -944,14 +944,15 @@ func _update_miss_dist() -> void:
 	miss_chart.x_range = Vector2i(0, ceiling)
 	miss_chart.show_mean = total > 0
 	miss_chart.ref_mean = theory
-	# 理論上の分布は集計件数ぶんの期待件数として重ねる（棒と同じく件数の割合）。0件のときは出さない
-	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling) if total > 0 else PackedFloat64Array()
+	# 理論上の分布は確率のまま、右の目盛り（%）で重ねる。0件のときも出す
+	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling)
+	miss_chart.ref_axis = true
 	miss_chart.show_dist(d, miss)
 	var lines := PackedStringArray()
 	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
 	lines.append("[color=%s]理論上の平均 %.1f回[/color]（緑の破線）" % [DistChart.REF_COLOR.to_html(false), theory])
+	lines.append("[color=%s]理論上の分布[/color]（緑の実線、右の目盛りで確率）" % DistChart.REF_COLOR.to_html(false))
 	if total > 0:
-		lines.append("[color=%s]理論上の分布[/color]（緑の実線）：集計 %d件なら見込まれる件数" % [DistChart.REF_COLOR.to_html(false), total])
 		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で予約 %d件[/color]" % [
 			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
 			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
