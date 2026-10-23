@@ -1,33 +1,38 @@
 extends Node2D
 ## おみくじのあたりの演出。風船が割れた場所から花火を打ち上げる。
 ## 段階（Omikuji.Tier）が上がるほど花火の数・粒の数・広がりが増える。
-## 上限であたったとき（GRAND）は画面いっぱいに打ち上げ、光と金の紙吹雪も出す。
-
-const FONT = preload("res://fonts/MPLUSRounded1c-Bold.ttf")
+## 上限であたったとき（GRAND）は画面が見えなくなるくらいに、回る後光・光の波・金貨の雨・画面の揺れを重ねる。
 
 const GRAVITY := 160.0
 const DRAG := 1.6
 const PALETTE := [Color("ff5d73"), Color("ffd43b"), Color("5ad1ff"), Color("8cf27a"), Color("c78bff"), Color("ffa24c")]
 const GOLD := Color("ffd76a")
 
-## 段階ごとの設定: 花火の数、1つの粒の数、粒の速さ、打ち上げ終わるまでの時間、文字の大きさ
+## 段階ごとの設定: 花火の数、1つの粒の数、粒の速さ、打ち上げ終わるまでの時間
 const TIERS := {
-	1: {"bursts": 1, "count": 22, "speed": 230.0, "spread": 0.0, "span": 0.0, "text": "あたり！", "size": 30},
-	2: {"bursts": 3, "count": 28, "speed": 280.0, "spread": 170.0, "span": 0.5, "text": "あたり！", "size": 38},
-	3: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0, "text": "あたり！！", "size": 46},
-	4: {"bursts": 14, "count": 48, "speed": 380.0, "spread": 0.0, "span": 2.0, "text": "大あたり！！", "size": 60},
+	1: {"bursts": 1, "count": 22, "speed": 230.0, "spread": 0.0, "span": 0.0},
+	2: {"bursts": 3, "count": 28, "speed": 280.0, "spread": 170.0, "span": 0.5},
+	3: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0},
+	4: {"bursts": 30, "count": 60, "speed": 460.0, "spread": 0.0, "span": 2.6},
 }
+## 大あたりの長さ（後光や金貨の雨が続く秒数）
+const GRAND_SEC := 3.6
+const GRAND_RAYS := 28
+const COINS := 160
 
-## 粒: {p, v, color, life, max, size, kind}。kind 0=花火の粒 1=金の紙吹雪 2=風船のかけら
+## 粒: {p, v, color, life, max, size, kind}。kind 0=花火の粒 1=金の紙吹雪 2=風船のかけら 3=金貨
 var _sparks: Array[Dictionary] = []
 ## これから打ち上げる花火: {at（残り秒）, pos, count, speed, colors, ring}
 var _queue: Array[Dictionary] = []
 var _flash := 0.0
-var _text := ""
-var _text_size := 30
-var _text_pos := Vector2.ZERO
-var _text_t := -1.0
 var _grand := false
+## 大あたりの経過秒（-1 で止まっている）と、中心
+var _grand_t := -1.0
+var _center := Vector2.ZERO
+## 光の波: {p, r, life, max, color}
+var _rings: Array[Dictionary] = []
+## 揺らすノード（パチモンや風船の層）。大あたりのあいだだけ揺らす
+var shake_target: Node2D
 var _t := 0.0
 var _rng := RandomNumberGenerator.new()
 
@@ -61,17 +66,18 @@ func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> flo
 			colors = [GOLD]
 		_queue.append({"at": cfg["span"] * i / maxf(1.0, n - 1.0), "pos": pos, "count": cfg["count"],
 			"speed": cfg["speed"] * _rng.randf_range(0.85, 1.1), "colors": colors, "ring": tier >= 3 and i % 2 == 0})
+	_flash = [0.0, 0.25, 0.4, 0.55, 1.0][tier]
 	if _grand:
-		# 最後にひときわ大きい金の花火
-		_queue.append({"at": cfg["span"] + 0.3, "pos": area.get_center(), "count": 90, "speed": 520.0, "colors": [GOLD, Color.WHITE], "ring": true})
-	_flash = [0.0, 0.25, 0.4, 0.55, 0.9][tier]
-	_text = cfg["text"]
-	_text_size = cfg["size"]
-	_text_pos = Vector2(area.get_center().x, clampf(origin.y - 120, area.position.y + 60, area.end.y))
-	if _grand:
-		_text_pos = area.get_center() + Vector2(0, -40)
-	_text_t = 0.0
-	return [0.0, 1.0, 1.4, 1.9, 3.2][tier]
+		_center = area.get_center()
+		_grand_t = 0.0
+		# 最後にひときわ大きい金の花火を2発
+		for k in 2:
+			_queue.append({"at": cfg["span"] + 0.2 + k * 0.35, "pos": _center, "count": 140, "speed": 760.0, "colors": [GOLD, Color.WHITE, PALETTE[k * 2]], "ring": true})
+		# 上から降る金貨
+		for i in COINS:
+			var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
+			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(9, 15), 3)
+	return [0.0, 1.0, 1.4, 1.9, GRAND_SEC][tier]
 
 
 func is_running() -> bool:
@@ -96,9 +102,10 @@ func _burst(b: Dictionary) -> void:
 			var a := TAU * i / (count / 2)
 			_add(b["pos"], Vector2.from_angle(a) * speed * 0.5, Color.WHITE, 0.8, 3.4, 0)
 	if _grand:
-		for i in 10:
-			_add(b["pos"], Vector2(_rng.randf_range(-120, 120), _rng.randf_range(-220, -40)), GOLD, _rng.randf_range(1.6, 2.4), 4.0, 1)
-	_flash = maxf(_flash, 0.12 if not _grand else 0.25)
+		for i in 16:
+			_add(b["pos"], Vector2(_rng.randf_range(-160, 160), _rng.randf_range(-280, -40)), GOLD, _rng.randf_range(1.6, 2.4), 5.0, 1)
+		_rings.append({"p": b["pos"], "r": 10.0, "life": 0.6, "max": 0.6, "color": b["colors"][0]})
+	_flash = maxf(_flash, 0.12 if not _grand else 0.5)
 
 
 func _process(delta: float) -> void:
@@ -113,23 +120,50 @@ func _process(delta: float) -> void:
 		s["life"] -= delta
 		if s["life"] <= 0.0:
 			continue
+		if s["kind"] == 3:
+			# 金貨は空気抵抗なしでまっすぐ落ちる
+			s["v"] += Vector2(0, GRAVITY * 0.6 * delta)
+			s["p"] += s["v"] * delta
+			alive.append(s)
+			continue
 		var drag := DRAG * (2.5 if s["kind"] == 1 else 1.0)
 		s["v"] = s["v"] * exp(-drag * delta) + Vector2(0, GRAVITY * (0.4 if s["kind"] == 1 else 1.0) * delta)
 		s["p"] += s["v"] * delta
 		alive.append(s)
 	_sparks = alive
 	_flash = maxf(0.0, _flash - delta * 1.5)
-	if _text_t >= 0.0:
-		_text_t += delta
-		if _text_t > (3.6 if _grand else 2.2):
-			_text_t = -1.0
+	for r in _rings:
+		r["life"] -= delta
+		r["r"] += delta * 900.0
+	_rings = _rings.filter(func(r: Dictionary) -> bool: return r["life"] > 0.0)
+	if _grand_t >= 0.0:
+		_grand_t += delta
+		if _grand_t > GRAND_SEC + 0.8:
+			_grand_t = -1.0
+	_shake()
 	queue_redraw()
 
 
+## 大あたりのあいだ、パチモンや風船の層をがたがた揺らす（終わりぎわは弱める）
+func _shake() -> void:
+	if shake_target == null:
+		return
+	if _grand_t < 0.0 or _grand_t > GRAND_SEC:
+		shake_target.position = Vector2.ZERO
+		return
+	var amount := 14.0 * clampf((GRAND_SEC - _grand_t) / 1.0, 0.0, 1.0)
+	shake_target.position = Vector2(_rng.randf_range(-amount, amount), _rng.randf_range(-amount, amount))
+
+
 func _draw() -> void:
+	if _grand_t >= 0.0:
+		_draw_glory()
 	if _flash > 0.0:
-		var c := Color(1, 0.97, 0.85, _flash * 0.5)
+		var c := Color(1, 0.97, 0.85, _flash * (0.85 if _grand else 0.5))
 		draw_rect(Rect2(-2000, -2000, 4000, 4000), c)
+	for r in _rings:
+		var k: float = r["life"] / r["max"]
+		draw_arc(r["p"], r["r"], 0, TAU, 64, Color(Color.WHITE.lerp(r["color"], 0.4), k * 0.9), 6.0 + 18.0 * k, true)
 	for s in _sparks:
 		var k: float = s["life"] / s["max"]
 		var color: Color = s["color"]
@@ -146,26 +180,42 @@ func _draw() -> void:
 				draw_rect(Rect2(s["p"] - Vector2(w, s["size"]) / 2, Vector2(w + 1, s["size"])), Color(color, minf(1.0, k * 2.0)))
 			2:
 				draw_circle(s["p"], s["size"] * k, Color(color, k))
-	if _text_t >= 0.0:
-		_draw_text()
+			3:
+				_draw_coin(s["p"], s["size"])
 
 
-func _draw_text() -> void:
-	var pop := minf(1.0, _text_t / 0.25)
-	var scale := 0.4 + 0.6 * pop + sin(minf(_text_t, 0.5) * TAU) * 0.08
-	var end := 3.6 if _grand else 2.2
-	var alpha := clampf((end - _text_t) / 0.4, 0.0, 1.0)
-	var size := int(_text_size * scale)
-	var w := FONT.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var at := _text_pos + Vector2(-w / 2, size * 0.36)
-	draw_string_outline(FONT, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, maxi(6, size / 5), Color(0.35, 0.12, 0.1, alpha))
-	if not _grand:
-		draw_string(FONT, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(Color("fff3b0"), alpha))
-		return
-	# 大あたりは1文字ずつ虹色に
-	var x := 0.0
-	for i in _text.length():
-		var ch := _text[i]
-		var hue := fmod(_t * 0.5 + i * 0.12, 1.0)
-		draw_string(FONT, at + Vector2(x, 0), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color.from_hsv(hue, 0.45, 1.0, alpha))
-		x += FONT.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+## 大あたりの後光: 中心から画面の外まで届く光の筋が回り、色が虹色に移る。真ん中は白く光る
+func _draw_glory() -> void:
+	var t := _grand_t
+	var grow := minf(1.0, t / 0.35)
+	var fade := clampf((GRAND_SEC + 0.8 - t) / 0.8, 0.0, 1.0)
+	var reach := 1600.0 * grow
+	for i in GRAND_RAYS:
+		var a := TAU * i / GRAND_RAYS + t * 0.9
+		var half := TAU / GRAND_RAYS * 0.32
+		var hue := fmod(t * 0.35 + float(i) / GRAND_RAYS, 1.0)
+		var color := GOLD if i % 2 == 0 else Color.from_hsv(hue, 0.5, 1.0)
+		var ray := PackedVector2Array([_center, _center + Vector2.from_angle(a - half) * reach, _center + Vector2.from_angle(a + half) * reach])
+		draw_colored_polygon(ray, Color(color, 0.55 * fade))
+	# 脈打つ中心の光
+	var pulse := 1.0 + 0.15 * sin(t * 12.0)
+	for k in 4:
+		draw_circle(_center, (220.0 - k * 50.0) * grow * pulse, Color(1, 0.98, 0.85, (0.18 + k * 0.18) * fade))
+
+
+## 落ちてくる金貨（回って見えるよう横幅を変える）
+func _draw_coin(p: Vector2, r: float) -> void:
+	var w := absf(sin(_t * 6.0 + p.x * 0.03))
+	var rx := maxf(1.5, r * w)
+	draw_colored_polygon(_ellipse(p, rx, r), Color("f2b632"))
+	draw_colored_polygon(_ellipse(p, rx * 0.72, r * 0.72), GOLD)
+	draw_circle(p + Vector2(-rx * 0.3, -r * 0.35), r * 0.18, Color(1, 1, 1, 0.8))
+
+
+func _ellipse(c: Vector2, rx: float, ry: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in 16:
+		var a := TAU * i / 16
+		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+	return pts
+

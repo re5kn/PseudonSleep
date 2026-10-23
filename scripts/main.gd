@@ -352,6 +352,7 @@ func _build_field() -> void:
 	actor_root.add_child(balloon)
 	fireworks = Fireworks.new()
 	actor_root.add_child(fireworks)
+	fireworks.shake_target = actor_root
 
 
 func _build_panel() -> void:
