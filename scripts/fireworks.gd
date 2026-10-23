@@ -2,7 +2,7 @@ extends Node2D
 
 const ItemArt = preload("res://scripts/item_art.gd")
 ## おみくじのあたりの演出。風船が割れた場所から花火を打ち上げる。
-## 段階（Omikuji.Tier）が上がるほど花火の数・粒の数・広がりが増える。
+## 段階（Omikuji.Tier）1 は花火、2 は花火を増やして閃光（十字の光）を足し、3 はさらに光の波を足す。
 ## 上限であたったとき（GRAND）は花火を上げず、画面が見えなくなるくらいに、回る後光・光の波・閃光（十字の光）・
 ## 画面全体のフラッシュ・きのみの雨・画面の揺れを重ねる。
 
@@ -11,11 +11,12 @@ const DRAG := 1.6
 const PALETTE := [Color("ff5d73"), Color("ffd43b"), Color("5ad1ff"), Color("8cf27a"), Color("c78bff"), Color("ffa24c")]
 const GOLD := Color("ffd76a")
 
-## 段階ごとの設定: 花火の数、1つの粒の数、粒の速さ、打ち上げ終わるまでの時間
+## 段階ごとの設定: 花火の数、1つの粒の数、粒の速さ、散らばる広さ、打ち上げ終わるまでの時間、閃光の数、光の波の数、
+## 吹き出しを出すまでの秒数
 const TIERS := {
-	1: {"bursts": 1, "count": 22, "speed": 230.0, "spread": 0.0, "span": 0.0},
-	2: {"bursts": 3, "count": 28, "speed": 280.0, "spread": 170.0, "span": 0.5},
-	3: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0},
+	1: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0, "glints": 0, "waves": 0, "wait": 1.9},
+	2: {"bursts": 10, "count": 40, "speed": 360.0, "spread": 300.0, "span": 1.4, "glints": 8, "waves": 0, "wait": 2.2},
+	3: {"bursts": 10, "count": 40, "speed": 360.0, "spread": 300.0, "span": 1.4, "glints": 8, "waves": 6, "wait": 2.2},
 }
 ## 大あたりの長さ（後光やきのみの雨が続く秒数）
 const GRAND_SEC := 3.6
@@ -102,12 +103,24 @@ func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> flo
 			pos = origin + Vector2(_rng.randf_range(-spread, spread), _rng.randf_range(-spread * 1.2, spread * 0.2))
 			pos = pos.clamp(area.position, area.end)
 		var colors: Array[Color] = []
-		for k in mini(1 + tier, 3):
+		for k in 3:
 			colors.append(PALETTE[_rng.randi_range(0, PALETTE.size() - 1)])
 		_queue.append({"at": cfg["span"] * i / maxf(1.0, n - 1.0), "pos": pos, "count": cfg["count"],
-			"speed": cfg["speed"] * _rng.randf_range(0.85, 1.1), "colors": colors, "ring": tier >= 3 and i % 2 == 0})
-	_flash = [0.0, 0.25, 0.4, 0.55][tier]
-	return [0.0, 1.0, 1.4, 1.9][tier]
+			"speed": cfg["speed"] * _rng.randf_range(0.85, 1.1), "colors": colors, "ring": i % 2 == 0})
+	# 閃光と光の波は、花火と同じ範囲に花火の時間に合わせて散らす
+	var spread_area := Rect2(origin - Vector2(cfg["spread"], cfg["spread"] * 1.2), Vector2(cfg["spread"] * 2, cfg["spread"] * 1.4)).intersection(area)
+	for i in cfg["glints"]:
+		_queue.append({"type": "glint", "at": _rng.randf_range(0.1, cfg["span"] + 0.3), "pos": _random_in(spread_area),
+			"color": GOLD if i % 2 == 0 else Color.WHITE, "size": _rng.randf_range(30, 80)})
+	for i in cfg["waves"]:
+		_queue.append({"type": "wave", "at": cfg["span"] * i / cfg["waves"] + _rng.randf_range(0.0, 0.15), "pos": _random_in(spread_area),
+			"color": PALETTE[_rng.randi_range(0, PALETTE.size() - 1)], "speed": _rng.randf_range(600, 900)})
+	_flash = 0.55
+	return cfg["wait"]
+
+
+func _random_in(r: Rect2) -> Vector2:
+	return Vector2(_rng.randf_range(r.position.x, r.end.x), _rng.randf_range(r.position.y, r.end.y))
 
 
 ## 大あたり: 光の波・閃光・フラッシュを時間をずらして並べ、きのみを降らせる
