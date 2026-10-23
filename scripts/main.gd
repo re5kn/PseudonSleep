@@ -21,6 +21,7 @@ const Dist = preload("res://scripts/dist.gd")
 const DistChart = preload("res://scripts/dist_chart.gd")
 const Omikuji = preload("res://scripts/omikuji.gd")
 const Balloon = preload("res://scripts/balloon.gd")
+const Fireworks = preload("res://scripts/fireworks.gd")
 const FONT = preload("res://fonts/MPLUSRounded1c-Bold.ttf")
 
 const VIEW_SIZE := Vector2(720, 1280)
@@ -38,6 +39,8 @@ const SLEEP_POPUP_W := 380.0
 ## おみくじの風船（地面の位置）と設定欄
 const BALLOON_POS := Vector2(584, 846)
 const OMIKUJI_POPUP_W := 400.0
+## あたりの花火を打ち上げる範囲（大あたりはこの中いっぱいに出す）
+const FIREWORKS_AREA := Rect2(80, 140, 560, 620)
 ## 回数の確率分布のグラフを出す欄
 const DIST_POPUP_W := 600.0
 const DIST_POPUP_Y := 300.0
@@ -112,6 +115,9 @@ var storage_box: StorageBox
 var desk: Desk
 var bed: Bed
 var balloon: Balloon
+var fireworks: Fireworks
+## あたりで割れた風船を、カットインの暗転が明けたら出し直す
+var balloon_respawn := false
 var clock: FieldClock
 var phase_tint: ColorRect
 var phase := FieldClock.phase_at(FieldClock.START_SEC)
@@ -342,6 +348,8 @@ func _build_field() -> void:
 	balloon = Balloon.new()
 	balloon.position = BALLOON_POS
 	actor_root.add_child(balloon)
+	fireworks = Fireworks.new()
+	actor_root.add_child(fireworks)
 
 
 func _build_panel() -> void:
@@ -1639,7 +1647,12 @@ func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray, lot := {}
 	await get_tree().create_timer(CUTIN_PAUSE_SEC).timeout
 	if not cutin_active:
 		return
-	if not lot.is_empty():
+	# おみくじ: あたりなら風船を割って花火、はずれなら膨らませる。演出のあとで吹き出しを出す
+	if lot.get("hits", 0) > 0:
+		await get_tree().create_timer(_pop_balloon(lot["tier"])).timeout
+		if not cutin_active:
+			return
+	elif not lot.is_empty():
 		_sync_balloon(true)
 	bubble_label.text = "\n".join(lines)
 	bubble.visible = true
@@ -1660,7 +1673,19 @@ func _end_cutin() -> void:
 	cutin_actor.show_exclaims(0)
 	create_tween().tween_property(dim, "modulate:a", 0.0, 0.2)
 	blocker.visible = false
-	_sync_balloon()
+	if balloon_respawn:
+		balloon_respawn = false
+		get_tree().create_timer(0.2).timeout.connect(func() -> void: balloon.respawn(omikuji.miss, omikuji.ratio()))
+	else:
+		_sync_balloon()
+
+
+## 風船を割って段階 tier の花火を始める。吹き出しを出すまで待つ秒数を返す
+func _pop_balloon(tier: int) -> float:
+	var wait := fireworks.start(tier, balloon.center(), balloon.body_color(), FIREWORKS_AREA)
+	balloon.pop()
+	balloon_respawn = true
+	return wait
 
 
 # ---------------------------------------------------------------- 表示
