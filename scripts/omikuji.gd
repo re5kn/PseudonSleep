@@ -15,6 +15,8 @@ var chance := CHANCE_DEFAULT
 var limit := LIMIT_DEFAULT
 ## 今の連続はずれ回数
 var miss := 0
+## あたりが出たときの連続はずれ回数の集計。要素 k が「k 回続けてはずれたあとのあたり」の件数（リセットで消える）
+var miss_runs := PackedInt32Array()
 var rng := RandomNumberGenerator.new()
 
 
@@ -45,6 +47,9 @@ static func tier_for(miss_count: int, miss_limit: int) -> int:
 func draw() -> int:
 	if miss >= limit or rng.randf() < chance:
 		var tier := tier_for(miss, limit)
+		if miss_runs.size() <= miss:
+			miss_runs.resize(miss + 1)
+		miss_runs[miss] += 1
 		miss = 0
 		return tier
 	miss += 1
@@ -67,3 +72,4 @@ func draw_for(stock: int) -> Dictionary:
 
 func reset() -> void:
 	miss = 0
+	miss_runs = PackedInt32Array()

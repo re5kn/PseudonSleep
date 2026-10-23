@@ -444,6 +444,7 @@ func _test_omikuji() -> void:
 	check(r["hits"] == 0 and o.miss == 4 and is_equal_approx(o.ratio(), 1.0), "4回続けてはずれ")
 	r = o.draw_for(1)
 	check(r["hits"] == 1 and r["tier"] == Omikuji.Tier.GRAND and o.miss == 0, "上限4なら5回目で必ずあたり（格別の演出）")
+	check(o.miss_runs.size() == 5 and o.miss_runs[4] == 1, "連続はずれの集計：4回はずれのあとのあたりが1件")
 	r = o.draw_for(2)
 	check(r["hits"] == 0 and o.miss == 2, "ストック2なら2回引く")
 	o.chance = 1.0
@@ -458,7 +459,7 @@ func _test_omikuji() -> void:
 	o.limit = 10
 	o.miss = 7
 	o.reset()
-	check(o.miss == 0, "リセットではずれ回数を0に戻す")
+	check(o.miss == 0 and o.miss_runs.is_empty(), "リセットではずれ回数と集計を消す")
 
 
 ## 連続不発の集計は予約の時点で1件。ストックがあるタップで途切れた分は数えない

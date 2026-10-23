@@ -38,7 +38,7 @@ const BED_POS := Vector2(478, 352)
 const SLEEP_POPUP_W := 380.0
 ## おみくじの風船（地面の位置）と設定欄
 const BALLOON_POS := Vector2(584, 846)
-const OMIKUJI_POPUP_W := 400.0
+const OMIKUJI_POPUP_W := 600.0
 ## あたりの花火を打ち上げる範囲（大あたりはこの中いっぱいに出す）
 const FIREWORKS_AREA := Rect2(80, 140, 560, 620)
 ## 回数の確率分布のグラフを出す欄
@@ -170,6 +170,8 @@ var omikuji_check: CheckBox
 var omikuji_chance: SpinBox
 var omikuji_limit: SpinBox
 var omikuji_summary: Label
+var omikuji_chart: DistChart
+var omikuji_dist: RichTextLabel
 ## 食材回数・スキル回数の (i) で出す確率分布の欄。出している項目（"ingredient" か "skill"）、閉じていれば ""
 var dist_popup: PanelContainer
 var dist_popup_kind := ""
@@ -868,6 +870,14 @@ func _build_omikuji_popup(layer: CanvasLayer) -> void:
 	omikuji_summary.custom_minimum_size = Vector2(OMIKUJI_POPUP_W - 40, 0)
 	v.add_child(omikuji_summary)
 
+	# 連続はずれの分布（スキル連続不発の分布と同じ形）
+	v.add_child(HSeparator.new())
+	v.add_child(_label("連続はずれの分布", 20))
+	omikuji_chart = _miss_chart("連続はずれの回数")
+	v.add_child(omikuji_chart)
+	omikuji_dist = _dist_text()
+	v.add_child(omikuji_dist)
+
 
 func _omikuji_spin(v: VBoxContainer, title: String, lo: float, hi: float, step: float, suffix: String) -> SpinBox:
 	var row := HBoxContainer.new()
@@ -910,6 +920,7 @@ func _hide_omikuji_popup() -> void:
 
 
 func _update_omikuji_summary() -> void:
+	_update_omikuji_dist()
 	if not omikuji.enabled:
 		omikuji_summary.text = "有効にすると、パチモンのメインスキルが1回出るたびにあたり／はずれを引きます。"
 	else:
@@ -955,14 +966,20 @@ func _build_dist_popup(layer: CanvasLayer) -> void:
 	v.add_child(miss_section)
 	miss_section.add_child(HSeparator.new())
 	miss_section.add_child(_label("スキル連続不発の分布", 20))
-	miss_chart = DistChart.new()
-	miss_chart.custom_minimum_size = Vector2(0, MISS_CHART_H)
-	miss_chart.bands = false
-	miss_chart.max_bars = MISS_MAX_BARS
-	miss_chart.x_title = "連続不発の回数"
+	miss_chart = _miss_chart("連続不発の回数")
 	miss_section.add_child(miss_chart)
 	miss_summary = _dist_text()
 	miss_section.add_child(miss_summary)
+
+
+## 連続不発・連続はずれの分布のグラフ（件数の棒＋理論上の分布）
+func _miss_chart(x_title: String) -> DistChart:
+	var chart := DistChart.new()
+	chart.custom_minimum_size = Vector2(0, MISS_CHART_H)
+	chart.bands = false
+	chart.max_bars = MISS_MAX_BARS
+	chart.x_title = x_title
+	return chart
 
 
 func _dist_text() -> RichTextLabel:
@@ -1051,43 +1068,57 @@ func _update_dist_popup() -> void:
 ## 実際に起きた連続不発の回数の集計（スキルが予約されるまでに続けて不発だった回数、予約1回で1件）。
 ## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤、集計の平均を青の破線、理論上の平均を緑の破線、理論上の分布を緑の実線にする
 func _update_miss_dist() -> void:
-	var runs := sim.miss_runs
+	miss_summary.text = _fill_miss_chart(miss_chart, sim.miss_runs, sim.params.skill_chance(), sim.params.skill_ceiling, sim.skill_miss, {
+		"what": "スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。",
+		"event": "予約", "none": "まだスキルが予約されていません。", "now": "今の連続不発"})
+
+
+## おみくじの設定欄の連続はずれの分布
+func _update_omikuji_dist() -> void:
+	omikuji_dist.text = _fill_miss_chart(omikuji_chart, omikuji.miss_runs, omikuji.chance, omikuji.limit, omikuji.miss, {
+		"what": "あたりが出るまでに続けてはずれた回数を、あたり1回で1件として数えています。",
+		"event": "あたり", "none": "まだあたりが出ていません。", "now": "今の連続はずれ"})
+
+
+## 連続不発（連続はずれ）の集計 runs をグラフに入れ、説明の文を返す。
+## p は1回で出る確率、ceiling は連続の上限（上限まで続いたら次は必ず出る）、miss は今続いている回数。
+## words の event は「予約」「あたり」など1件に数えるできごと
+func _fill_miss_chart(chart: DistChart, runs: PackedInt32Array, p: float, ceiling: int, miss: int, words: Dictionary) -> String:
 	var total := 0
 	var longest := 0
 	for k in runs.size():
 		total += runs[k]
 		if runs[k] > 0:
 			longest = k
-	var ceiling := maxi(0, sim.params.skill_ceiling)
-	var miss := sim.skill_miss
-	var theory := Sim.miss_run_mean(sim.params.skill_chance(), ceiling)
+	ceiling = maxi(0, ceiling)
+	var theory := Sim.miss_run_mean(p, ceiling)
 	# 集計が0件でも、軸と理論上の平均の破線は出す
 	var d := Dist.new()
 	d.p = PackedFloat64Array()
 	d.p.resize(maxi(runs.size(), ceiling + 1))
 	for k in runs.size():
 		d.p[k] = float(runs[k]) / total if total > 0 else 0.0
-	miss_chart.accent = ceiling
-	miss_chart.count_total = maxi(total, 1)
-	miss_chart.x_range = Vector2i(0, ceiling)
-	miss_chart.show_mean = total > 0
-	miss_chart.ref_mean = theory
+	chart.accent = ceiling
+	chart.count_total = maxi(total, 1)
+	chart.x_range = Vector2i(0, ceiling)
+	chart.show_mean = total > 0
+	chart.ref_mean = theory
 	# 理論上の分布は確率のまま、右の目盛り（%）で重ねる。0件のときも出す
-	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling)
-	miss_chart.ref_axis = true
-	miss_chart.show_dist(d, miss)
+	chart.ref_pmf = Sim.miss_run_pmf(p, ceiling)
+	chart.ref_axis = true
+	chart.show_dist(d, miss)
 	var lines := PackedStringArray()
-	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
+	lines.append(words["what"])
 	lines.append("[color=%s]理論上の平均 %.1f回[/color]（緑の破線）" % [DistChart.REF_COLOR.to_html(false), theory])
 	lines.append("[color=%s]理論上の分布[/color]（緑の実線、右の目盛りで確率）" % DistChart.REF_COLOR.to_html(false))
 	if total > 0:
-		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で予約 %d件[/color]" % [
+		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で%s %d件[/color]" % [
 			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
-			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
+			DistChart.ACCENT_COLOR.to_html(false), ceiling, words["event"], runs[ceiling] if ceiling < runs.size() else 0])
 	else:
-		lines.append("まだスキルが予約されていません。")
-	lines.append("[color=%s]今の連続不発 %d回[/color]（予約されたら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), miss])
-	miss_summary.text = "\n".join(lines)
+		lines.append(words["none"])
+	lines.append("[color=%s]%s %d回[/color]（%sが出たら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), words["now"], miss, words["event"]])
+	return "\n".join(lines)
 
 
 ## 実際の回数 x が分布の下側・上側のどちらに寄っているかを「下位○%」「上位○%」で表す。
