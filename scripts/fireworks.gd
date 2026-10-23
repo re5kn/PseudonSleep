@@ -20,12 +20,15 @@ const TIERS := {
 ## 大あたりの長さ（後光やきのみの雨が続く秒数）
 const GRAND_SEC := 3.6
 const GRAND_RAYS := 28
-## 大あたりの光の波・閃光の数と、画面全体のフラッシュの間隔
+## 大あたりの光の波・閃光の数
 const GRAND_WAVES := 48
-const GRAND_GLINTS := 90
-const GRAND_FLASH_STEP := 0.6
+const GRAND_GLINTS := 30
+## 画面全体のフラッシュの間隔と光っている長さ（秒）。どちらもこの範囲でばらばらにする。
+## 間隔の下限は、点滅が1秒に3回を超えないようにするため
+const FLASH_GAP := Vector2(0.34, 0.9)
+const FLASH_LEN := Vector2(0.1, 0.55)
 ## 上から降らすきのみの数
-const BERRIES := 320
+const BERRIES := 640
 ## きのみの絵を描く正方形の一辺（倍率1のきのみが葉まで収まる大きさ）
 const BERRY_TEX := 48
 
@@ -44,6 +47,8 @@ var _berry_tex: Texture2D
 ## これから打ち上げる花火: {at（残り秒）, pos, count, speed, colors, ring}
 var _queue: Array[Dictionary] = []
 var _flash := 0.0
+## フラッシュが1秒で引く量（長さの逆数。フラッシュごとに変える）
+var _flash_fade := 1.5
 var _grand := false
 ## 大あたりの経過秒（-1 で止まっている）と、中心
 var _grand_t := -1.0
@@ -123,10 +128,10 @@ func _start_grand(area: Rect2) -> void:
 		var at := Vector2(_rng.randf_range(area.position.x - 60, area.end.x + 60), _rng.randf_range(area.position.y - 120, area.end.y + 160))
 		_queue.append({"type": "glint", "at": _rng.randf_range(0.0, span), "pos": at,
 			"color": GOLD if i % 2 == 0 else Color.WHITE, "size": _rng.randf_range(40, 110)})
-	var k := 0
-	while k * GRAND_FLASH_STEP < span:
-		_queue.append({"type": "flash", "at": k * GRAND_FLASH_STEP})
-		k += 1
+	var at := 0.0
+	while at < span:
+		_queue.append({"type": "flash", "at": at, "len": _rng.randf_range(FLASH_LEN.x, FLASH_LEN.y)})
+		at += _rng.randf_range(FLASH_GAP.x, FLASH_GAP.y)
 	# 上から降るきのみ（size は絵の倍率）
 	for i in BERRIES:
 		var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
@@ -178,6 +183,7 @@ func _fire(e: Dictionary) -> void:
 			_glints.append({"p": e["pos"], "life": 0.5, "max": 0.5, "size": e["size"], "rot": _rng.randf_range(-0.3, 0.3), "color": e["color"]})
 		"flash":
 			_flash = 1.0
+			_flash_fade = 1.0 / e["len"]
 
 
 func _process(delta: float) -> void:
@@ -191,8 +197,8 @@ func _process(delta: float) -> void:
 			else:
 				_burst(b)
 	_step_sparks(delta)
-	# 大あたりのフラッシュはぱっと光ってすぐ引く
-	_flash = maxf(0.0, _flash - delta * (3.5 if _grand else 1.5))
+	# 大あたりのフラッシュはぱっと光って、フラッシュごとの長さで引く
+	_flash = maxf(0.0, _flash - delta * (_flash_fade if _grand else 1.5))
 	for r in _rings:
 		r["life"] -= delta
 		r["r"] += delta * r.get("speed", 900.0)
