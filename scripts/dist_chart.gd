@@ -29,7 +29,7 @@ const TAIL_BANDS := [
 ]
 ## 目立たせる回数の棒（連続不発の上限など）
 const ACCENT_COLOR := Color("d9534f")
-## 理論上の平均の破線（ref_mean）
+## 理論上の平均の破線（ref_mean）と理論上の分布の実線（ref_pmf）
 const REF_COLOR := Color("3a9a5b")
 const AXIS_COLOR := Color("8a7660")
 const TEXT_COLOR := Color("5a4632")
@@ -55,6 +55,8 @@ var x_range := Vector2i(0, -1)
 var show_mean := true
 ## 0 以上なら、その位置に理論上の平均の破線を REF_COLOR で引く
 var ref_mean := -1.0
+## 空でなければ、理論上の分布（要素 i が「i 回」の確率。dist と同じ割合の単位）を REF_COLOR の実線で重ねる
+var ref_pmf := PackedFloat64Array()
 
 
 func show_dist(d: Dist, actual_count: int) -> void:
@@ -83,8 +85,17 @@ func _draw() -> void:
 	for b in bars:
 		for x in range(first + b * width, first + (b + 1) * width):
 			masses[b] += dist.mass(x)
+	var refs := PackedFloat64Array()
+	if not ref_pmf.is_empty():
+		refs.resize(bars)
+		for b in bars:
+			for x in range(first + b * width, first + (b + 1) * width):
+				if x >= 0 and x < ref_pmf.size():
+					refs[b] += ref_pmf[x]
 	var top := 0.0
 	for m in masses:
+		top = maxf(top, m)
+	for m in refs:
 		top = maxf(top, m)
 	var y_max := _nice_ceil(top)
 	if count_total > 0:
@@ -117,6 +128,13 @@ func _draw() -> void:
 			# 高さ0でも実際の回数の位置がわかるよう、軸の上に短く出す
 			r = Rect2(r.position.x, plot.end.y - 3.0, r.size.x, 3.0)
 		draw_rect(r, ACTUAL_COLOR if has_actual else ACCENT_COLOR if has_accent else BAR_COLOR)
+
+	# 理論上の分布の実線（棒の中心を結ぶ）
+	if not refs.is_empty() and y_max > 0.0:
+		var pts := PackedVector2Array()
+		for b in bars:
+			pts.append(Vector2(plot.position.x + (b + 0.5) * bar_w, plot.end.y - plot.size.y * minf(refs[b] / y_max, 1.0)))
+		draw_polyline(pts, REF_COLOR, 2.5, true)
 
 	draw_line(Vector2(plot.position.x, plot.end.y), plot.end, AXIS_COLOR, 2.0)
 	draw_line(plot.position, Vector2(plot.position.x, plot.end.y), AXIS_COLOR, 2.0)

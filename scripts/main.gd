@@ -921,7 +921,7 @@ func _update_dist_popup() -> void:
 
 
 ## 実際に起きた連続不発の回数の集計（スキルが予約されるまでに続けて不発だった回数、予約1回で1件）。
-## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤、集計の平均を青、理論上の平均を緑の破線にする
+## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤、集計の平均を青の破線、理論上の平均を緑の破線、理論上の分布を緑の実線にする
 func _update_miss_dist() -> void:
 	var runs := sim.miss_runs
 	var total := 0
@@ -944,11 +944,14 @@ func _update_miss_dist() -> void:
 	miss_chart.x_range = Vector2i(0, ceiling)
 	miss_chart.show_mean = total > 0
 	miss_chart.ref_mean = theory
+	# 理論上の分布は集計件数ぶんの期待件数として重ねる（棒と同じく件数の割合）。0件のときは出さない
+	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling) if total > 0 else PackedFloat64Array()
 	miss_chart.show_dist(d, miss)
 	var lines := PackedStringArray()
 	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
 	lines.append("[color=%s]理論上の平均 %.1f回[/color]（緑の破線）" % [DistChart.REF_COLOR.to_html(false), theory])
 	if total > 0:
+		lines.append("[color=%s]理論上の分布[/color]（緑の実線）：集計 %d件なら見込まれる件数" % [DistChart.REF_COLOR.to_html(false), total])
 		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で予約 %d件[/color]" % [
 			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
 			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
