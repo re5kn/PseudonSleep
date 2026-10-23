@@ -1,7 +1,9 @@
 extends Node2D
+
+const ItemArt = preload("res://scripts/item_art.gd")
 ## おみくじのあたりの演出。風船が割れた場所から花火を打ち上げる。
 ## 段階（Omikuji.Tier）が上がるほど花火の数・粒の数・広がりが増える。
-## 上限であたったとき（GRAND）は画面が見えなくなるくらいに、回る後光・光の波・金貨の雨・画面の揺れを重ねる。
+## 上限であたったとき（GRAND）は画面が見えなくなるくらいに、回る後光・光の波・きのみの雨・画面の揺れを重ねる。
 
 const GRAVITY := 160.0
 const DRAG := 1.6
@@ -15,12 +17,13 @@ const TIERS := {
 	3: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0},
 	4: {"bursts": 30, "count": 60, "speed": 460.0, "spread": 0.0, "span": 2.6},
 }
-## 大あたりの長さ（後光や金貨の雨が続く秒数）
+## 大あたりの長さ（後光やきのみの雨が続く秒数）
 const GRAND_SEC := 3.6
 const GRAND_RAYS := 28
-const COINS := 160
+## 上から降らすきのみの数
+const BERRIES := 320
 
-## 粒: {p, v, color, life, max, size, kind}。kind 0=花火の粒 1=金の紙吹雪 2=風船のかけら 3=金貨
+## 粒: {p, v, color, life, max, size, kind}。kind 0=花火の粒 1=金の紙吹雪 2=風船のかけら 3=きのみ
 var _sparks: Array[Dictionary] = []
 ## これから打ち上げる花火: {at（残り秒）, pos, count, speed, colors, ring}
 var _queue: Array[Dictionary] = []
@@ -73,10 +76,10 @@ func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> flo
 		# 最後にひときわ大きい金の花火を2発
 		for k in 2:
 			_queue.append({"at": cfg["span"] + 0.2 + k * 0.35, "pos": _center, "count": 140, "speed": 760.0, "colors": [GOLD, Color.WHITE, PALETTE[k * 2]], "ring": true})
-		# 上から降る金貨
-		for i in COINS:
+		# 上から降るきのみ（size は絵の倍率）
+		for i in BERRIES:
 			var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
-			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(9, 15), 3)
+			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(0.7, 1.15), 3)
 	return [0.0, 1.0, 1.4, 1.9, GRAND_SEC][tier]
 
 
@@ -121,7 +124,7 @@ func _process(delta: float) -> void:
 		if s["life"] <= 0.0:
 			continue
 		if s["kind"] == 3:
-			# 金貨は空気抵抗なしでまっすぐ落ちる
+			# きのみは空気抵抗なしでまっすぐ落ちる
 			s["v"] += Vector2(0, GRAVITY * 0.6 * delta)
 			s["p"] += s["v"] * delta
 			alive.append(s)
@@ -181,7 +184,7 @@ func _draw() -> void:
 			2:
 				draw_circle(s["p"], s["size"] * k, Color(color, k))
 			3:
-				_draw_coin(s["p"], s["size"])
+				_draw_berry(s["p"], s["size"])
 
 
 ## 大あたりの後光: 中心から画面の外まで届く光の筋が回り、色が虹色に移る。真ん中は白く光る
@@ -203,19 +206,8 @@ func _draw_glory() -> void:
 		draw_circle(_center, (220.0 - k * 50.0) * grow * pulse, Color(1, 0.98, 0.85, (0.18 + k * 0.18) * fade))
 
 
-## 落ちてくる金貨（回って見えるよう横幅を変える）
-func _draw_coin(p: Vector2, r: float) -> void:
-	var w := absf(sin(_t * 6.0 + p.x * 0.03))
-	var rx := maxf(1.5, r * w)
-	draw_colored_polygon(_ellipse(p, rx, r), Color("f2b632"))
-	draw_colored_polygon(_ellipse(p, rx * 0.72, r * 0.72), GOLD)
-	draw_circle(p + Vector2(-rx * 0.3, -r * 0.35), r * 0.18, Color(1, 1, 1, 0.8))
-
-
-func _ellipse(c: Vector2, rx: float, ry: float) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in 16:
-		var a := TAU * i / 16
-		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
-	return pts
-
+## 落ちてくるきのみ（くるくる回る）
+func _draw_berry(p: Vector2, scale: float) -> void:
+	draw_set_transform(p, _t * 4.0 + p.x * 0.05)
+	ItemArt.draw_item(self, "berry", Vector2.ZERO, scale)
+	draw_set_transform(Vector2.ZERO)
