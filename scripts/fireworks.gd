@@ -3,7 +3,8 @@ extends Node2D
 const ItemArt = preload("res://scripts/item_art.gd")
 ## おみくじのあたりの演出。風船が割れた場所から花火を打ち上げる。
 ## 段階（Omikuji.Tier）が上がるほど花火の数・粒の数・広がりが増える。
-## 上限であたったとき（GRAND）は画面が見えなくなるくらいに、回る後光・光の波・きのみの雨・画面の揺れを重ねる。
+## 上限であたったとき（GRAND）は花火を上げず、画面が見えなくなるくらいに、回る後光・光の波・閃光（十字の光）・
+## 画面全体のフラッシュ・きのみの雨・画面の揺れを重ねる。
 
 const GRAVITY := 160.0
 const DRAG := 1.6
@@ -15,11 +16,14 @@ const TIERS := {
 	1: {"bursts": 1, "count": 22, "speed": 230.0, "spread": 0.0, "span": 0.0},
 	2: {"bursts": 3, "count": 28, "speed": 280.0, "spread": 170.0, "span": 0.5},
 	3: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0},
-	4: {"bursts": 30, "count": 60, "speed": 460.0, "spread": 0.0, "span": 2.6},
 }
 ## 大あたりの長さ（後光やきのみの雨が続く秒数）
 const GRAND_SEC := 3.6
 const GRAND_RAYS := 28
+## 大あたりの光の波・閃光の数と、画面全体のフラッシュの間隔
+const GRAND_WAVES := 48
+const GRAND_GLINTS := 90
+const GRAND_FLASH_STEP := 0.6
 ## 上から降らすきのみの数
 const BERRIES := 320
 ## きのみの絵を描く正方形の一辺（倍率1のきのみが葉まで収まる大きさ）
@@ -44,8 +48,10 @@ var _grand := false
 ## 大あたりの経過秒（-1 で止まっている）と、中心
 var _grand_t := -1.0
 var _center := Vector2.ZERO
-## 光の波: {p, r, life, max, color}
+## 光の波: {p, r, life, max, color, speed}
 var _rings: Array[Dictionary] = []
+## 閃光（十字に光る星）: {p, life, max, size, rot, color}
+var _glints: Array[Dictionary] = []
 ## 揺らすノード（パチモンや風船の層）。大あたりのあいだだけ揺らす
 var shake_target: Node2D
 var _t := 0.0
@@ -73,46 +79,62 @@ func _render_berry() -> Texture2D:
 
 ## origin で風船を割り、段階 tier の花火を始める。吹き出しを出すまで待つ秒数を返す
 func start(tier: int, origin: Vector2, balloon_color: Color, area: Rect2) -> float:
-	var cfg: Dictionary = TIERS[clampi(tier, 1, 4)]
 	_grand = tier >= 4
 	set_process(true)
 	# 風船のかけら
 	for i in 14:
 		var a := _rng.randf() * TAU
 		_add(origin, Vector2.from_angle(a) * _rng.randf_range(120, 260), balloon_color, _rng.randf_range(0.4, 0.7), 5.0, Kind.SHARD)
+	if _grand:
+		_start_grand(area)
+		return GRAND_SEC
+	var cfg: Dictionary = TIERS[clampi(tier, 1, 3)]
 	var n: int = cfg["bursts"]
 	for i in n:
 		var pos := origin
 		if i > 0:
-			if _grand:
-				pos = Vector2(_rng.randf_range(area.position.x, area.end.x), _rng.randf_range(area.position.y, area.end.y))
-			else:
-				var spread: float = cfg["spread"]
-				pos = origin + Vector2(_rng.randf_range(-spread, spread), _rng.randf_range(-spread * 1.2, spread * 0.2))
-				pos = pos.clamp(area.position, area.end)
+			var spread: float = cfg["spread"]
+			pos = origin + Vector2(_rng.randf_range(-spread, spread), _rng.randf_range(-spread * 1.2, spread * 0.2))
+			pos = pos.clamp(area.position, area.end)
 		var colors: Array[Color] = []
 		for k in mini(1 + tier, 3):
 			colors.append(PALETTE[_rng.randi_range(0, PALETTE.size() - 1)])
-		if _grand and i % 3 == 0:
-			colors = [GOLD]
 		_queue.append({"at": cfg["span"] * i / maxf(1.0, n - 1.0), "pos": pos, "count": cfg["count"],
 			"speed": cfg["speed"] * _rng.randf_range(0.85, 1.1), "colors": colors, "ring": tier >= 3 and i % 2 == 0})
-	_flash = [0.0, 0.25, 0.4, 0.55, 1.0][tier]
-	if _grand:
-		_center = area.get_center()
-		_grand_t = 0.0
-		# 最後にひときわ大きい金の花火を2発
-		for k in 2:
-			_queue.append({"at": cfg["span"] + 0.2 + k * 0.35, "pos": _center, "count": 140, "speed": 760.0, "colors": [GOLD, Color.WHITE, PALETTE[k * 2]], "ring": true})
-		# 上から降るきのみ（size は絵の倍率）
-		for i in BERRIES:
-			var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
-			_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(0.7, 1.15), Kind.BERRY)
-	return [0.0, 1.0, 1.4, 1.9, GRAND_SEC][tier]
+	_flash = [0.0, 0.25, 0.4, 0.55][tier]
+	return [0.0, 1.0, 1.4, 1.9][tier]
+
+
+## 大あたり: 光の波・閃光・フラッシュを時間をずらして並べ、きのみを降らせる
+func _start_grand(area: Rect2) -> void:
+	_center = area.get_center()
+	_grand_t = 0.0
+	var span := GRAND_SEC - 0.4
+	var colors: Array[Color] = [GOLD, Color.WHITE]
+	colors.append_array(PALETTE)
+	for i in GRAND_WAVES:
+		# 3つに1つは中心から大きく、ほかは画面のあちこちから
+		var at := Vector2(_rng.randf_range(area.position.x, area.end.x), _rng.randf_range(area.position.y, area.end.y))
+		if i % 3 == 0:
+			at = _center
+		_queue.append({"type": "wave", "at": span * i / GRAND_WAVES + _rng.randf_range(0.0, 0.1), "pos": at,
+			"color": colors[_rng.randi_range(0, colors.size() - 1)], "speed": 1300.0 if i % 3 == 0 else _rng.randf_range(700, 1000)})
+	for i in GRAND_GLINTS:
+		var at := Vector2(_rng.randf_range(area.position.x - 60, area.end.x + 60), _rng.randf_range(area.position.y - 120, area.end.y + 160))
+		_queue.append({"type": "glint", "at": _rng.randf_range(0.0, span), "pos": at,
+			"color": GOLD if i % 2 == 0 else Color.WHITE, "size": _rng.randf_range(40, 110)})
+	var k := 0
+	while k * GRAND_FLASH_STEP < span:
+		_queue.append({"type": "flash", "at": k * GRAND_FLASH_STEP})
+		k += 1
+	# 上から降るきのみ（size は絵の倍率）
+	for i in BERRIES:
+		var p := Vector2(_rng.randf_range(area.position.x - 80, area.end.x + 80), _rng.randf_range(-900, -20))
+		_add(p, Vector2(_rng.randf_range(-40, 40), _rng.randf_range(120, 360)), GOLD, GRAND_SEC + 1.0, _rng.randf_range(0.7, 1.15), Kind.BERRY)
 
 
 func is_running() -> bool:
-	return not _pos.is_empty() or not _queue.is_empty() or not _rings.is_empty() or _grand_t >= 0.0 or _flash > 0.0
+	return not _pos.is_empty() or not _queue.is_empty() or not _rings.is_empty() or not _glints.is_empty() or _grand_t >= 0.0 or _flash > 0.0
 
 
 func spark_count() -> int:
@@ -142,11 +164,20 @@ func _burst(b: Dictionary) -> void:
 		for i in count / 2:
 			var a := TAU * i / (count / 2)
 			_add(b["pos"], Vector2.from_angle(a) * speed * 0.5, Color.WHITE, 0.8, 3.4, Kind.SPARK)
-	if _grand:
-		for i in 16:
-			_add(b["pos"], Vector2(_rng.randf_range(-160, 160), _rng.randf_range(-280, -40)), GOLD, _rng.randf_range(1.6, 2.4), 5.0, Kind.CONFETTI)
-		_rings.append({"p": b["pos"], "r": 10.0, "life": 0.6, "max": 0.6, "color": b["colors"][0]})
-	_flash = maxf(_flash, 0.12 if not _grand else 0.5)
+	_flash = maxf(_flash, 0.12)
+
+
+## 大あたりの予定を1つ出す（光の波・閃光・フラッシュ）
+func _fire(e: Dictionary) -> void:
+	match e["type"]:
+		"wave":
+			# 太い波のすぐ後ろに細い波を重ねる
+			_rings.append({"p": e["pos"], "r": 10.0, "life": 0.7, "max": 0.7, "color": e["color"], "speed": e["speed"], "width": 26.0})
+			_rings.append({"p": e["pos"], "r": 0.0, "life": 0.6, "max": 0.6, "color": Color.WHITE, "speed": e["speed"] * 0.8, "width": 10.0})
+		"glint":
+			_glints.append({"p": e["pos"], "life": 0.5, "max": 0.5, "size": e["size"], "rot": _rng.randf_range(-0.3, 0.3), "color": e["color"]})
+		"flash":
+			_flash = 1.0
 
 
 func _process(delta: float) -> void:
@@ -155,13 +186,20 @@ func _process(delta: float) -> void:
 		b["at"] -= delta
 		if b["at"] <= 0.0:
 			_queue.erase(b)
-			_burst(b)
+			if b.has("type"):
+				_fire(b)
+			else:
+				_burst(b)
 	_step_sparks(delta)
-	_flash = maxf(0.0, _flash - delta * 1.5)
+	# 大あたりのフラッシュはぱっと光ってすぐ引く
+	_flash = maxf(0.0, _flash - delta * (3.5 if _grand else 1.5))
 	for r in _rings:
 		r["life"] -= delta
-		r["r"] += delta * 900.0
+		r["r"] += delta * r.get("speed", 900.0)
 	_rings = _rings.filter(func(r: Dictionary) -> bool: return r["life"] > 0.0)
+	for g in _glints:
+		g["life"] -= delta
+	_glints = _glints.filter(func(g: Dictionary) -> bool: return g["life"] > 0.0)
 	if _grand_t >= 0.0:
 		_grand_t += delta
 		if _grand_t > GRAND_SEC + 0.8:
@@ -220,13 +258,36 @@ func _shake() -> void:
 func _draw() -> void:
 	if _grand_t >= 0.0:
 		_draw_glory()
-	if _flash > 0.0:
-		var c := Color(1, 0.97, 0.85, _flash * (0.85 if _grand else 0.5))
-		draw_rect(Rect2(-2000, -2000, 4000, 4000), c)
 	for r in _rings:
 		var k: float = r["life"] / r["max"]
-		draw_arc(r["p"], r["r"], 0, TAU, 64, Color(Color.WHITE.lerp(r["color"], 0.4), k * 0.9), 6.0 + 18.0 * k, true)
+		var width: float = r.get("width", 24.0)
+		draw_arc(r["p"], r["r"], 0, TAU, 64, Color(Color.WHITE.lerp(r["color"], 0.4), k * 0.9), width * (0.25 + 0.75 * k), true)
+	for g in _glints:
+		_draw_glint(g)
 	_draw_sparks()
+	if _flash > 0.0:
+		var c := Color(1, 0.98, 0.9, _flash * (0.95 if _grand else 0.5))
+		draw_rect(Rect2(-2000, -2000, 4000, 4000), c)
+
+
+## 閃光: 縦横に長く斜めに短い光の筋と、まんなかの丸い光。出てすぐ大きくなり、すっと消える
+func _draw_glint(g: Dictionary) -> void:
+	var k: float = g["life"] / g["max"]
+	var grow := sin(PI * (1.0 - k))
+	var size: float = g["size"] * grow
+	if size < 1.0:
+		return
+	var p: Vector2 = g["p"]
+	var rot: float = g["rot"] + (1.0 - k) * 0.6
+	var color: Color = g["color"]
+	for j in 4:
+		var long := size if j % 2 == 0 else size * 0.45
+		var dir := Vector2.from_angle(rot + PI / 4 * j)
+		var side := dir.orthogonal() * size * 0.07
+		for sign in [1.0, -1.0]:
+			var tip: Vector2 = p + dir * long * sign
+			draw_colored_polygon(PackedVector2Array([p + side, tip, p - side]), Color(color, 0.9 * grow))
+	draw_circle(p, size * 0.16, Color(1, 1, 1, grow))
 
 
 ## 粒をまとめて描く。花火の尾・頭と紙吹雪は種類ごとに線の束1回で描き、描く回数を減らす
