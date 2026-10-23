@@ -3,6 +3,7 @@ extends Control
 ## header = true なら列の見出しだけを描く。
 ## パチモンをタップした時点には、おてつだいの行のあいだに色つきの「タップ」行を挟む。
 ## 日ごとの区切りには、その日に集めたきのみ・食材とスキルの予約数のまとめを挟む（#81）。
+## まとめはスクロールしても上端に固定し、次の日のまとめが上端に来たらそれに押し出されて入れ替わる。
 
 const ItemArt = preload("res://scripts/item_art.gd")
 const Sim = preload("res://scripts/sim.gd")
@@ -39,6 +40,8 @@ var rows: Array[Dictionary] = []
 var slot_ids: Array = []
 ## 日ごとのまとめ（day_summaries の結果）
 var summaries := {}
+## 日ごとのまとめの位置。{"row": rows での最初の行, "day": n日目, "lines": summary_lines の結果}
+var blocks: Array[Dictionary] = []
 
 
 func _init(is_header: bool = false) -> void:
@@ -54,6 +57,7 @@ func set_log(list: Array[Dictionary], slots: Array = [], active_slots: int = 0) 
 	summaries = day_summaries(entries, slot_ids)
 	help_numbers.resize(entries.size())
 	rows.clear()
+	blocks.clear()
 	var k := 0
 	var day := 0
 	for i in entries.size():
@@ -65,11 +69,29 @@ func set_log(list: Array[Dictionary], slots: Array = [], active_slots: int = 0) 
 		var d := day_of(entries[i])
 		if d != day:
 			day = d
-			for line in summary_lines(summaries[d], active_slots):
+			var lines := summary_lines(summaries[d], active_slots)
+			blocks.append({"row": rows.size(), "day": d, "lines": lines})
+			for line in lines:
 				rows.append({"day": d, "line": line})
 		rows.append({"e": i})
 	custom_minimum_size.y = ROW_H * maxi(1, rows.size())
 	queue_redraw()
+
+
+## スクロールの上端 top に固定して描くまとめ。[blocks の番号, 描く y]。固定しないときは番号 -1。
+## 上端より上から始まったまとめを top に描き、次のまとめが近づいたらその上に押し上げる
+func pinned_at(top: float) -> Array:
+	var b := -1
+	for i in blocks.size():
+		if blocks[i]["row"] * ROW_H >= top:
+			break
+		b = i
+	if b < 0:
+		return [-1, 0.0]
+	var y := top
+	if b + 1 < blocks.size():
+		y = minf(y, (blocks[b + 1]["row"] - blocks[b]["lines"].size()) * ROW_H)
+	return [b, y]
 
 
 static func day_of(e: Dictionary) -> int:
@@ -142,6 +164,13 @@ func _draw() -> void:
 			_draw_row(row["e"], r * ROW_H)
 		else:
 			_draw_summary_line(row["day"], row["line"], r * ROW_H)
+	if scroll != null:
+		var pin := pinned_at(scroll.scroll_vertical)
+		if pin[0] >= 0:
+			var block: Dictionary = blocks[pin[0]]
+			var lines: Array = block["lines"]
+			for l in lines.size():
+				_draw_summary_line(block["day"], lines[l], pin[1] + l * ROW_H)
 
 
 func _draw_row(i: int, y: float) -> void:

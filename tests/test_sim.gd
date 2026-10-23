@@ -532,6 +532,12 @@ func _test_day_summary() -> void:
 	check(table.rows.size() == list.size() + 3 + 2, "まとめの行は各日の先頭に入る")
 	check(table.rows[0] == {"day": 1, "line": 0} and table.rows[3] == {"e": 0}, "1日目のまとめのあとに1日目の記録")
 	check(table.rows[7] == {"day": 2, "line": 0} and table.rows[9] == {"e": 4}, "2日目のまとめは2日目の最初の記録の前")
+	# まとめの固定表示。1日目は 0〜2 行目（3行）、2日目は 7〜8 行目（2行）
+	var h := HelpLogTable.ROW_H
+	check(table.pinned_at(0.0)[0] == -1, "一番上ではそのまま（固定しない）")
+	check(table.pinned_at(h * 2) == [0, h * 2], "スクロールすると1日目のまとめを上端に固定")
+	check(table.pinned_at(h * 5) == [0, h * 4], "2日目のまとめが近づくと押し上げる")
+	check(table.pinned_at(h * 7.5) == [1, h * 7.5], "2日目のまとめが上端を越えたら入れ替わる")
 	table.free()
 
 
