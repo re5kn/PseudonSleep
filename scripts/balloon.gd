@@ -1,7 +1,7 @@
 extends Node2D
 ## おみくじの風船。position は地面の位置（糸の根元）。タップすると設定欄を開く。
 ## 無効のときは地面に接地し、有効のときは糸を張って宙に浮く。
-## 連続はずれの上限に対するはずれ回数の割合で膨らみ（上限でもとの5倍）、はずれ回数を風船に書く。
+## 連続はずれの上限に対するはずれ回数の割合で膨らみ（上限でもとの5倍）、カウントダウンの数（上限＋1−連続はずれ）を風船に書く。
 
 const ItemArt = preload("res://scripts/item_art.gd")
 const FONT = preload("res://fonts/MPLUSRounded1c-Bold.ttf")
@@ -18,7 +18,7 @@ const RUBBER := Color("ff7f9e")
 const RUBBER_FULL := Color("f2354f")
 const STRING := Color("8a7660")
 
-## はずれ回数
+## カウントダウンの数（上限＋1−連続はずれ）
 var count := 0
 ## 上限に対する割合（0〜1）。表示はなめらかに追いかける
 var ratio := 0.0
@@ -42,9 +42,9 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## はずれ回数と割合を入れる。増えたときはぷるんと揺らす
+## カウントダウンの数と割合を入れる。数が変わったときはぷるんと揺らす
 func set_state(n: int, r: float) -> void:
-	if n > count and not popped:
+	if n != count and not popped:
 		_boing = 1.0
 	count = n
 	ratio = r

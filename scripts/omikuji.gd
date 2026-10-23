@@ -31,6 +31,11 @@ func ratio() -> float:
 	return clampf(float(miss) / limit, 0.0, 1.0)
 
 
+## 風船に出すカウントダウンの数（上限＋1−連続はずれ）。上限まではずれると1、次は必ずあたり
+func remaining() -> int:
+	return maxi(1, limit + 1 - miss)
+
+
 ## 割合から決まるあたりの演出の段階
 static func tier_for(miss_count: int, miss_limit: int) -> int:
 	if miss_count >= miss_limit:

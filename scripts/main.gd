@@ -41,6 +41,8 @@ const BALLOON_POS := Vector2(584, 846)
 const OMIKUJI_POPUP_W := 600.0
 ## あたりの花火を打ち上げる範囲（大あたりはこの中いっぱいに出す）
 const FIREWORKS_AREA := Rect2(80, 140, 560, 620)
+## 上限のあたりで、風船の数字が0になってから割れるまでの間
+const GRAND_COUNTDOWN_SEC := 0.7
 ## 回数の確率分布のグラフを出す欄
 const DIST_POPUP_W := 600.0
 const DIST_POPUP_Y := 300.0
@@ -1681,6 +1683,12 @@ func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray, lot := {}
 		return
 	# おみくじ: あたりなら風船を割って花火、はずれなら膨らませる。演出のあとで吹き出しを出す
 	if lot.get("hits", 0) > 0:
+		if lot["tier"] == Omikuji.Tier.GRAND:
+			# 上限であたったときは、カウントダウンが0になるのを見せてから割る
+			balloon.set_state(0, 1.0)
+			await get_tree().create_timer(GRAND_COUNTDOWN_SEC).timeout
+			if not cutin_active:
+				return
 		await get_tree().create_timer(_pop_balloon(lot["tier"])).timeout
 		if not cutin_active:
 			return
@@ -1707,7 +1715,7 @@ func _end_cutin() -> void:
 	blocker.visible = false
 	if balloon_respawn:
 		balloon_respawn = false
-		get_tree().create_timer(0.2).timeout.connect(func() -> void: balloon.respawn(omikuji.miss, omikuji.ratio()))
+		get_tree().create_timer(0.2).timeout.connect(func() -> void: balloon.respawn(omikuji.remaining(), omikuji.ratio()))
 	else:
 		_sync_balloon()
 
@@ -1785,7 +1793,7 @@ func _sync_balloon(now := false) -> void:
 	balloon.floating = omikuji.enabled
 	if cutin_active and not now:
 		return
-	balloon.set_state(omikuji.miss, omikuji.ratio())
+	balloon.set_state(omikuji.remaining(), omikuji.ratio())
 
 
 func _refresh() -> void:

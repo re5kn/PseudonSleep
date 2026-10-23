@@ -440,8 +440,10 @@ func _test_omikuji() -> void:
 	o.enabled = true
 	o.chance = 0.0
 	o.limit = 4
+	check(o.remaining() == 5, "カウントダウンは上限4なら5から")
 	var r := o.draw_for(4)
 	check(r["hits"] == 0 and o.miss == 4 and is_equal_approx(o.ratio(), 1.0), "4回続けてはずれ")
+	check(o.remaining() == 1, "上限まではずれるとカウントダウンは1")
 	r = o.draw_for(1)
 	check(r["hits"] == 1 and r["tier"] == Omikuji.Tier.GRAND and o.miss == 0, "上限4なら5回目で必ずあたり（格別の演出）")
 	check(o.miss_runs.size() == 5 and o.miss_runs[4] == 1, "連続はずれの集計：4回はずれのあとのあたりが1件")
