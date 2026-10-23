@@ -142,11 +142,18 @@ func _draw() -> void:
 			r = Rect2(r.position.x, plot.end.y - 3.0, r.size.x, 3.0)
 		draw_rect(r, ACTUAL_COLOR if has_actual else ACCENT_COLOR if has_accent else BAR_COLOR)
 
-	# 理論上の分布の実線（棒の中心を結ぶ）
+	# 理論上の分布の実線（棒の中心を結ぶ）。目立たせる棒（連続不発の上限）へは、ななめにせず
+	# 手前の高さのまま棒の左端まで進んで縦に変わる階段にする
 	if not refs.is_empty() and ref_top > 0.0:
 		var pts := PackedVector2Array()
 		for b in bars:
-			pts.append(Vector2(plot.position.x + (b + 0.5) * bar_w, plot.end.y - plot.size.y * minf(refs[b] / ref_top, 1.0)))
+			var y := plot.end.y - plot.size.y * minf(refs[b] / ref_top, 1.0)
+			var lo := first + b * width
+			if b > 0 and accent >= lo and accent < lo + width:
+				var left := plot.position.x + b * bar_w
+				pts.append(Vector2(left, pts[pts.size() - 1].y))
+				pts.append(Vector2(left, y))
+			pts.append(Vector2(plot.position.x + (b + 0.5) * bar_w, y))
 		draw_polyline(pts, REF_COLOR, 2.5, true)
 
 	draw_line(Vector2(plot.position.x, plot.end.y), plot.end, AXIS_COLOR, 2.0)
