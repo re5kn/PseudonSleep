@@ -44,7 +44,7 @@ const FIREWORKS_AREA := Rect2(80, 140, 560, 620)
 ## 上限のあたりで、風船の数字が0になってからさらに膨らみ始めるまでの間と、膨らむ時間・倍率
 const GRAND_COUNTDOWN_SEC := 0.4
 const GRAND_INFLATE_SEC := 1.0
-const GRAND_INFLATE := 2.0
+const GRAND_INFLATE := 4.0
 ## 回数の確率分布のグラフを出す欄
 const DIST_POPUP_W := 600.0
 const DIST_POPUP_Y := 300.0
@@ -1686,7 +1686,7 @@ func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray, lot := {}
 	# おみくじ: あたりなら風船を割って花火、はずれなら膨らませる。演出のあとで吹き出しを出す
 	if lot.get("hits", 0) > 0:
 		if lot["tier"] == Omikuji.Tier.GRAND:
-			# 上限であたったときは、カウントダウンが0になるのを見せ、さらに2倍まで膨らませてから割る
+			# 上限であたったときは、カウントダウンが0になるのを見せ、さらに4倍まで膨らませてから割る
 			balloon.set_state(0, 1.0)
 			await get_tree().create_timer(GRAND_COUNTDOWN_SEC).timeout
 			balloon.overinflate(GRAND_INFLATE, GRAND_INFLATE_SEC)
