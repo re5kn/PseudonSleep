@@ -130,6 +130,8 @@ var dim: ColorRect
 var hud_label: RichTextLabel
 var log_panel: PanelContainer
 var log_scrim: ColorRect
+## 設定パネルと記録パネルのレイヤー。上限のあたりの演出中は隠す
+var side_layers: Array[CanvasLayer] = []
 var log_open := false
 var log_slide := 0.0
 var log_tween: Tween
@@ -1162,6 +1164,7 @@ func _build_log_view() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 7
 	add_child(layer)
+	side_layers.append(layer)
 	# 狭い画面ではパネルがフィールドに重なる。外側のタップはここで受けて閉じる
 	log_scrim = ColorRect.new()
 	log_scrim.color = Color(0, 0, 0, 0.35)
@@ -1246,6 +1249,7 @@ func _build_settings() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 6
 	add_child(layer)
+	side_layers.append(layer)
 	# 狭い画面ではパネルがフィールドに重なる。外側のタップはここで受けて閉じる
 	settings_scrim = ColorRect.new()
 	settings_scrim.color = Color(0, 0, 0, 0.35)
@@ -1685,15 +1689,21 @@ func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray, lot := {}
 		return
 	# おみくじ: あたりなら風船を割って花火、はずれなら膨らませる。演出のあとで吹き出しを出す
 	if lot.get("hits", 0) > 0:
-		if lot["tier"] == Omikuji.Tier.GRAND:
-			# 上限であたったときは、カウントダウンが0になるのを見せ、さらに3倍まで膨らませてから割る
+		var grand: bool = lot["tier"] == Omikuji.Tier.GRAND
+		if grand:
+			# 上限であたったときは、設定パネルと記録パネルを隠して画面いっぱいに見せる
+			_show_side_panels(false)
+			# カウントダウンが0になるのを見せ、さらに3倍まで膨らませてから割る
 			balloon.set_state(0, 1.0)
 			await get_tree().create_timer(GRAND_COUNTDOWN_SEC).timeout
 			balloon.overinflate(GRAND_INFLATE, GRAND_INFLATE_SEC)
 			await get_tree().create_timer(GRAND_INFLATE_SEC + 0.1).timeout
 			if not cutin_active:
+				_show_side_panels(true)
 				return
 		await get_tree().create_timer(_pop_balloon(lot["tier"])).timeout
+		if grand:
+			_show_side_panels_after_fireworks()
 		if not cutin_active:
 			return
 	elif not lot.is_empty():
@@ -1722,6 +1732,19 @@ func _end_cutin() -> void:
 		get_tree().create_timer(0.2).timeout.connect(func() -> void: balloon.respawn(omikuji.remaining(), omikuji.ratio()))
 	else:
 		_sync_balloon()
+
+
+## 設定パネルと記録パネルを出す／隠す（開いていたパネルは開いたまま戻る）
+func _show_side_panels(on: bool) -> void:
+	for layer in side_layers:
+		layer.visible = on
+
+
+## 降ってくるきのみなどの演出がすべて終わってから、設定パネルと記録パネルを出す
+func _show_side_panels_after_fireworks() -> void:
+	while fireworks.is_running():
+		await get_tree().process_frame
+	_show_side_panels(true)
 
 
 ## 風船を割って段階 tier の花火を始める。吹き出しを出すまで待つ秒数を返す
