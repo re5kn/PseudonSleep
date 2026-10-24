@@ -19,6 +19,9 @@ const Presets = preload("res://scripts/presets.gd")
 const Bed = preload("res://scripts/bed.gd")
 const Dist = preload("res://scripts/dist.gd")
 const DistChart = preload("res://scripts/dist_chart.gd")
+const Omikuji = preload("res://scripts/omikuji.gd")
+const Balloon = preload("res://scripts/balloon.gd")
+const Fireworks = preload("res://scripts/fireworks.gd")
 const FONT = preload("res://fonts/MPLUSRounded1c-Bold.ttf")
 
 const VIEW_SIZE := Vector2(720, 1280)
@@ -33,6 +36,15 @@ const DESK_POS := Vector2(606, 560)
 ## ベッド（「ねむる」の札付き）の中心
 const BED_POS := Vector2(478, 352)
 const SLEEP_POPUP_W := 380.0
+## おみくじの風船（地面の位置）と設定欄
+const BALLOON_POS := Vector2(584, 846)
+const OMIKUJI_POPUP_W := 600.0
+## あたりの花火を打ち上げる範囲（大あたりはこの中いっぱいに出す）
+const FIREWORKS_AREA := Rect2(80, 140, 560, 620)
+## 上限のあたりで、風船の数字が0になってからさらに膨らみ始めるまでの間と、膨らむ時間・倍率
+const GRAND_COUNTDOWN_SEC := 0.4
+const GRAND_INFLATE_SEC := 1.0
+const GRAND_INFLATE := 3.0
 ## 回数の確率分布のグラフを出す欄
 const DIST_POPUP_W := 600.0
 const DIST_POPUP_Y := 300.0
@@ -87,6 +99,7 @@ var presets: Presets
 var hours := 3
 ## 睡眠時間（分）。初期値は8時間30分（げんきが100回復する長さ）
 var sleep_minutes := Sim.SLEEP_FULL_MIN
+var omikuji := Omikuji.new()
 var piles := {}
 var cutin_active := false
 var cutin_closable := false
@@ -105,6 +118,10 @@ var pseudon: PseudonView
 var storage_box: StorageBox
 var desk: Desk
 var bed: Bed
+var balloon: Balloon
+var fireworks: Fireworks
+## あたりで割れた風船を、カットインの暗転が明けたら出し直す
+var balloon_respawn := false
 var clock: FieldClock
 var phase_tint: ColorRect
 var phase := FieldClock.phase_at(FieldClock.START_SEC)
@@ -152,6 +169,13 @@ var bubble_label: Label
 var sleep_popup: PanelContainer
 var sleep_time_label: Label
 var sleep_summary: Label
+var omikuji_popup: PanelContainer
+var omikuji_check: CheckBox
+var omikuji_chance: SpinBox
+var omikuji_limit: SpinBox
+var omikuji_summary: Label
+var omikuji_chart: DistChart
+var omikuji_dist: RichTextLabel
 ## 食材回数・スキル回数の (i) で出す確率分布の欄。出している項目（"ingredient" か "skill"）、閉じていれば ""
 var dist_popup: PanelContainer
 var dist_popup_kind := ""
@@ -326,6 +350,13 @@ func _build_field() -> void:
 		fv.phase = i * 2.3
 		actor_root.add_child(fv)
 		fairy_views.append(fv)
+	# おみくじの風船。あたりの演出を暗転の上に出すため、パチモンと同じ層に置く
+	balloon = Balloon.new()
+	balloon.position = BALLOON_POS
+	actor_root.add_child(balloon)
+	fireworks = Fireworks.new()
+	actor_root.add_child(fireworks)
+	fireworks.shake_target = actor_root
 
 
 func _build_panel() -> void:
@@ -476,6 +507,7 @@ func _build_overlays() -> void:
 
 	_build_fairy_popup(layer)
 	_build_sleep_popup(layer)
+	_build_omikuji_popup(layer)
 	_build_dist_popup(layer)
 
 	# カットイン中はタップをここで受け止める
@@ -788,6 +820,118 @@ func _update_sleep_popup() -> void:
 	sleep_summary.text = "起きたときのげんき回復（100まで）：%s" % "・".join(parts)
 
 
+## おみくじの設定欄: 有効／無効、あたりの確率、連続はずれの上限。睡眠の設定欄と同じ見た目
+func _build_omikuji_popup(layer: CanvasLayer) -> void:
+	omikuji_popup = PanelContainer.new()
+	omikuji_popup.theme = SettingsPanel.make_theme(ui_theme)
+	omikuji_popup.visible = false
+	omikuji_popup.custom_minimum_size = Vector2(OMIKUJI_POPUP_W, 0)
+	var sb := _style(CREAM, 22, 12)
+	sb.set_border_width_all(3)
+	sb.border_color = Color("e6cf9f")
+	sb.shadow_color = Color(0, 0, 0, 0.3)
+	sb.shadow_size = 8
+	omikuji_popup.add_theme_stylebox_override("panel", sb)
+	layer.add_child(omikuji_popup)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	omikuji_popup.add_child(v)
+
+	var top := HBoxContainer.new()
+	v.add_child(top)
+	var title := _label("おみくじ", 22)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(title)
+	var close := _button("×", Color("ffe9bf"), TEXT_DARK)
+	close.custom_minimum_size = Vector2(48, 48)
+	close.add_theme_font_size_override("font_size", 24)
+	close.pressed.connect(_hide_omikuji_popup)
+	top.add_child(close)
+
+	omikuji_check = CheckBox.new()
+	omikuji_check.text = "有効にする"
+	omikuji_check.button_pressed = omikuji.enabled
+	omikuji_check.focus_mode = Control.FOCUS_NONE
+	omikuji_check.add_theme_font_size_override("font_size", 18)
+	omikuji_check.toggled.connect(func(on: bool) -> void:
+		omikuji.enabled = on
+		_refresh())
+	v.add_child(omikuji_check)
+
+	omikuji_chance = _omikuji_spin(v, "あたりの確率", 0.0, 100.0, 0.1, "%")
+	omikuji_chance.value = omikuji.chance * 100.0
+	omikuji_chance.value_changed.connect(func(x: float) -> void:
+		omikuji.chance = x / 100.0
+		_refresh())
+	omikuji_limit = _omikuji_spin(v, "連続はずれの上限", 0.0, Omikuji.LIMIT_MAX, 1.0, "回")
+	omikuji_limit.value = omikuji.limit
+	omikuji_limit.value_changed.connect(func(x: float) -> void:
+		omikuji.limit = int(x)
+		_refresh())
+
+	omikuji_summary = _label("", 15)
+	omikuji_summary.add_theme_color_override("font_color", Color("8a7660"))
+	omikuji_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	omikuji_summary.custom_minimum_size = Vector2(OMIKUJI_POPUP_W - 40, 0)
+	v.add_child(omikuji_summary)
+
+	# 連続はずれの分布（スキル連続不発の分布と同じ形）
+	v.add_child(HSeparator.new())
+	v.add_child(_label("連続はずれの分布", 20))
+	omikuji_chart = _miss_chart("連続はずれの回数")
+	v.add_child(omikuji_chart)
+	omikuji_dist = _dist_text()
+	v.add_child(omikuji_dist)
+
+
+func _omikuji_spin(v: VBoxContainer, title: String, lo: float, hi: float, step: float, suffix: String) -> SpinBox:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	v.add_child(row)
+	var label := _label(title, 18)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	var spin := SpinBox.new()
+	spin.min_value = lo
+	spin.max_value = hi
+	spin.step = step
+	spin.suffix = suffix
+	spin.custom_minimum_size = Vector2(130, 0)
+	spin.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	spin.select_all_on_focus = true
+	row.add_child(spin)
+	return spin
+
+
+func _show_omikuji_popup() -> void:
+	omikuji_check.set_pressed_no_signal(omikuji.enabled)
+	omikuji_chance.set_value_no_signal(omikuji.chance * 100.0)
+	omikuji_limit.set_value_no_signal(omikuji.limit)
+	_update_omikuji_summary()
+	omikuji_popup.reset_size()
+	# 風船の上に出す（膨らんでいても重ならないよう、風船のてっぺんより上）
+	var s := omikuji_popup.get_combined_minimum_size()
+	var x := clampf(BALLOON_POS.x - s.x / 2, 12, VIEW_SIZE.x - s.x - 12)
+	var y := clampf(balloon.top_y() - 52 - s.y, 12, PANEL_TOP - s.y - 12)
+	omikuji_popup.position = Vector2(x, y)
+	omikuji_popup.visible = true
+
+
+func _hide_omikuji_popup() -> void:
+	# 入力途中の値を確定させる
+	if omikuji_popup.visible:
+		get_viewport().gui_release_focus()
+	omikuji_popup.visible = false
+
+
+func _update_omikuji_summary() -> void:
+	_update_omikuji_dist()
+	if not omikuji.enabled:
+		omikuji_summary.text = "有効にすると、パチモンのメインスキルが1回出るたびにあたり／はずれを引きます。"
+	else:
+		omikuji_summary.text = "いまの連続はずれ %d回。上限%d回まではずれたら、次は必ずあたり。" % [omikuji.miss, omikuji.limit]
+
+
 func _build_dist_popup(layer: CanvasLayer) -> void:
 	dist_popup = PanelContainer.new()
 	dist_popup.theme = SettingsPanel.make_theme(ui_theme)
@@ -827,14 +971,20 @@ func _build_dist_popup(layer: CanvasLayer) -> void:
 	v.add_child(miss_section)
 	miss_section.add_child(HSeparator.new())
 	miss_section.add_child(_label("スキル連続不発の分布", 20))
-	miss_chart = DistChart.new()
-	miss_chart.custom_minimum_size = Vector2(0, MISS_CHART_H)
-	miss_chart.bands = false
-	miss_chart.max_bars = MISS_MAX_BARS
-	miss_chart.x_title = "連続不発の回数"
+	miss_chart = _miss_chart("連続不発の回数")
 	miss_section.add_child(miss_chart)
 	miss_summary = _dist_text()
 	miss_section.add_child(miss_summary)
+
+
+## 連続不発・連続はずれの分布のグラフ（件数の棒＋理論上の分布）
+func _miss_chart(x_title: String) -> DistChart:
+	var chart := DistChart.new()
+	chart.custom_minimum_size = Vector2(0, MISS_CHART_H)
+	chart.bands = false
+	chart.max_bars = MISS_MAX_BARS
+	chart.x_title = x_title
+	return chart
 
 
 func _dist_text() -> RichTextLabel:
@@ -923,43 +1073,57 @@ func _update_dist_popup() -> void:
 ## 実際に起きた連続不発の回数の集計（スキルが予約されるまでに続けて不発だった回数、予約1回で1件）。
 ## 今続いている不発カウントの位置を紫、連続不発上限の棒を赤、集計の平均を青の破線、理論上の平均を緑の破線、理論上の分布を緑の実線にする
 func _update_miss_dist() -> void:
-	var runs := sim.miss_runs
+	miss_summary.text = _fill_miss_chart(miss_chart, sim.miss_runs, sim.params.skill_chance(), sim.params.skill_ceiling, sim.skill_miss, {
+		"what": "スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。",
+		"event": "予約", "none": "まだスキルが予約されていません。", "now": "今の連続不発"})
+
+
+## おみくじの設定欄の連続はずれの分布
+func _update_omikuji_dist() -> void:
+	omikuji_dist.text = _fill_miss_chart(omikuji_chart, omikuji.miss_runs, omikuji.chance, omikuji.limit, omikuji.miss, {
+		"what": "あたりが出るまでに続けてはずれた回数を、あたり1回で1件として数えています。",
+		"event": "あたり", "none": "まだあたりが出ていません。", "now": "今の連続はずれ"})
+
+
+## 連続不発（連続はずれ）の集計 runs をグラフに入れ、説明の文を返す。
+## p は1回で出る確率、ceiling は連続の上限（上限まで続いたら次は必ず出る）、miss は今続いている回数。
+## words の event は「予約」「あたり」など1件に数えるできごと
+func _fill_miss_chart(chart: DistChart, runs: PackedInt32Array, p: float, ceiling: int, miss: int, words: Dictionary) -> String:
 	var total := 0
 	var longest := 0
 	for k in runs.size():
 		total += runs[k]
 		if runs[k] > 0:
 			longest = k
-	var ceiling := maxi(0, sim.params.skill_ceiling)
-	var miss := sim.skill_miss
-	var theory := Sim.miss_run_mean(sim.params.skill_chance(), ceiling)
+	ceiling = maxi(0, ceiling)
+	var theory := Sim.miss_run_mean(p, ceiling)
 	# 集計が0件でも、軸と理論上の平均の破線は出す
 	var d := Dist.new()
 	d.p = PackedFloat64Array()
 	d.p.resize(maxi(runs.size(), ceiling + 1))
 	for k in runs.size():
 		d.p[k] = float(runs[k]) / total if total > 0 else 0.0
-	miss_chart.accent = ceiling
-	miss_chart.count_total = maxi(total, 1)
-	miss_chart.x_range = Vector2i(0, ceiling)
-	miss_chart.show_mean = total > 0
-	miss_chart.ref_mean = theory
+	chart.accent = ceiling
+	chart.count_total = maxi(total, 1)
+	chart.x_range = Vector2i(0, ceiling)
+	chart.show_mean = total > 0
+	chart.ref_mean = theory
 	# 理論上の分布は確率のまま、右の目盛り（%）で重ねる。0件のときも出す
-	miss_chart.ref_pmf = Sim.miss_run_pmf(sim.params.skill_chance(), ceiling)
-	miss_chart.ref_axis = true
-	miss_chart.show_dist(d, miss)
+	chart.ref_pmf = Sim.miss_run_pmf(p, ceiling)
+	chart.ref_axis = true
+	chart.show_dist(d, miss)
 	var lines := PackedStringArray()
-	lines.append("スキルが予約されるまでに続けて不発だった回数を、予約1回で1件として数えています。")
+	lines.append(words["what"])
 	lines.append("[color=%s]理論上の平均 %.1f回[/color]（緑の破線）" % [DistChart.REF_COLOR.to_html(false), theory])
 	lines.append("[color=%s]理論上の分布[/color]（緑の実線、右の目盛りで確率）" % DistChart.REF_COLOR.to_html(false))
 	if total > 0:
-		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で予約 %d件[/color]" % [
+		lines.append("集計 %d件　[color=%s]平均 %.1f回[/color]（青の破線）　最長 %d回　[color=%s]上限%d回で%s %d件[/color]" % [
 			total, DistChart.MEAN_COLOR.to_html(false), d.mean(), longest,
-			DistChart.ACCENT_COLOR.to_html(false), ceiling, runs[ceiling] if ceiling < runs.size() else 0])
+			DistChart.ACCENT_COLOR.to_html(false), ceiling, words["event"], runs[ceiling] if ceiling < runs.size() else 0])
 	else:
-		lines.append("まだスキルが予約されていません。")
-	lines.append("[color=%s]今の連続不発 %d回[/color]（予約されたら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), miss])
-	miss_summary.text = "\n".join(lines)
+		lines.append(words["none"])
+	lines.append("[color=%s]%s %d回[/color]（%sが出たら集計に入ります）" % [DistChart.ACTUAL_COLOR.to_html(false), words["now"], miss, words["event"]])
+	return "\n".join(lines)
 
 
 ## 実際の回数 x が分布の下側・上側のどちらに寄っているかを「下位○%」「上位○%」で表す。
@@ -1263,6 +1427,7 @@ func _on_reset() -> void:
 	sim.reset()
 	for f in fairies:
 		f.sim.reset()
+	omikuji.reset()
 	clock.show_elapsed(sim.elapsed_sec, false)
 	for id in piles:
 		piles[id].queue_free()
@@ -1271,6 +1436,7 @@ func _on_reset() -> void:
 		t.queue_free()
 	_hide_box_popup()
 	_hide_sleep_popup()
+	_hide_omikuji_popup()
 	_hide_dist_popup()
 	_refresh()
 
@@ -1312,6 +1478,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	_hide_fairy_popup()
 	var had_sleep_popup := sleep_popup.visible
 	_hide_sleep_popup()
+	var had_omikuji_popup := omikuji_popup.visible
+	_hide_omikuji_popup()
 	_hide_dist_popup()
 	for id in piles:
 		if piles[id].hit(p):
@@ -1333,6 +1501,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif had_fairy_popup != i:
 				_show_fairy_popup(i)
 			return
+	if balloon.hit(p):
+		if not had_omikuji_popup:
+			_show_omikuji_popup()
+		return
 	if bed.hit(p):
 		if not had_sleep_popup:
 			_show_sleep_popup()
@@ -1373,7 +1545,9 @@ func _on_pseudon_tap() -> void:
 	var stock: int = result["stock"]
 	_spawn_drops(result["items"])
 	if stock > 0:
-		_start_cutin(pseudon, stock, _skill_lines(sim.params, result["ceiling"], "肌のツヤが%dポイントアップ！" % stock))
+		# おみくじはスキル1回（ストック1つ）ごとに引く。結果はカットインの「！」のあとで見せる
+		var lot := omikuji.draw_for(stock)
+		_start_cutin(pseudon, stock, _skill_lines(sim.params, result["ceiling"], "肌のツヤが%dポイントアップ！" % stock), lot)
 	_refresh()
 
 
@@ -1497,7 +1671,8 @@ func _skill_lines(p: Params, by_ceiling: int, effect: String) -> PackedStringArr
 
 
 ## actor（パチモンか妖精）の頭上に「!」を出してから、スキルの吹き出しを出す
-func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray) -> void:
+## lot はおみくじの結果（Omikuji.draw_for）。パチモンのときだけ渡す
+func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray, lot := {}) -> void:
 	cutin_active = true
 	cutin_closable = false
 	cutin_actor = actor
@@ -1508,6 +1683,21 @@ func _start_cutin(actor: Node2D, stock: int, lines: PackedStringArray) -> void:
 	await get_tree().create_timer(CUTIN_PAUSE_SEC).timeout
 	if not cutin_active:
 		return
+	# おみくじ: あたりなら風船を割って花火、はずれなら膨らませる。演出のあとで吹き出しを出す
+	if lot.get("hits", 0) > 0:
+		if lot["tier"] == Omikuji.Tier.GRAND:
+			# 上限であたったときは、カウントダウンが0になるのを見せ、さらに3倍まで膨らませてから割る
+			balloon.set_state(0, 1.0)
+			await get_tree().create_timer(GRAND_COUNTDOWN_SEC).timeout
+			balloon.overinflate(GRAND_INFLATE, GRAND_INFLATE_SEC)
+			await get_tree().create_timer(GRAND_INFLATE_SEC + 0.1).timeout
+			if not cutin_active:
+				return
+		await get_tree().create_timer(_pop_balloon(lot["tier"])).timeout
+		if not cutin_active:
+			return
+	elif not lot.is_empty():
+		_sync_balloon(true)
 	bubble_label.text = "\n".join(lines)
 	bubble.visible = true
 	bubble.scale = Vector2(0.6, 0.6)
@@ -1527,6 +1717,19 @@ func _end_cutin() -> void:
 	cutin_actor.show_exclaims(0)
 	create_tween().tween_property(dim, "modulate:a", 0.0, 0.2)
 	blocker.visible = false
+	if balloon_respawn:
+		balloon_respawn = false
+		get_tree().create_timer(0.2).timeout.connect(func() -> void: balloon.respawn(omikuji.remaining(), omikuji.ratio()))
+	else:
+		_sync_balloon()
+
+
+## 風船を割って段階 tier の花火を始める。吹き出しを出すまで待つ秒数を返す
+func _pop_balloon(tier: int) -> float:
+	var wait := fireworks.start(tier, balloon.center(), balloon.body_color(), FIREWORKS_AREA)
+	balloon.pop()
+	balloon_respawn = true
+	return wait
 
 
 # ---------------------------------------------------------------- 表示
@@ -1589,6 +1792,14 @@ func _format_hours(sec: float) -> String:
 	return "%d時間%02d分" % [total_min / 60, total_min % 60]
 
 
+## 風船に今のはずれ回数と割合を入れる。カットイン中は「！」のあとまで前の状態のままにする
+func _sync_balloon(now := false) -> void:
+	balloon.floating = omikuji.enabled
+	if cutin_active and not now:
+		return
+	balloon.set_state(omikuji.remaining(), omikuji.ratio())
+
+
 func _refresh() -> void:
 	pseudon.ribbon_tier = sim.params.ribbon_tier()
 	pseudon.help_bonus = sim.params.help_bonus_count
@@ -1625,6 +1836,9 @@ func _refresh() -> void:
 		sim.params.pseudon_name, sim.params.level, _format_hours(sim.elapsed_sec), genki, table]
 	if dist_popup.visible:
 		_update_dist_popup()
+	_sync_balloon()
+	if omikuji_popup.visible:
+		_update_omikuji_summary()
 
 	pseudon.show_icon = sim.has_icon()
 	pseudon.show_menu = not pseudon.show_icon and not settings_open
