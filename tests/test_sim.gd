@@ -435,7 +435,7 @@ func _test_skill_ceiling() -> void:
 func _test_omikuji() -> void:
 	print("おみくじ")
 	var o := Omikuji.new()
-	check(not o.enabled and is_equal_approx(o.chance, 0.10) and o.limit == 10, "初期値は無効・あたり10%・連続はずれの上限10")
+	check(not o.enabled and is_equal_approx(o.chance, 0.70) and o.limit == 10, "初期値は無効・あたり70%・連続はずれの上限10")
 	check(o.draw_for(3)["hits"] == 0 and o.miss == 0, "無効のあいだは引かない")
 	o.enabled = true
 	o.chance = 0.0

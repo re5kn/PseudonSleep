@@ -3,7 +3,7 @@ extends RefCounted
 ## はずれが連続はずれの上限まで続いたら、次は必ずあたり（スキル天井と同じ数え方）。
 ## あたりで連続はずれの回数は0に戻る。
 
-const CHANCE_DEFAULT := 0.10
+const CHANCE_DEFAULT := 0.70
 const LIMIT_DEFAULT := 10
 const LIMIT_MAX := 99
 
