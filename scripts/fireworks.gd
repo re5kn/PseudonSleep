@@ -14,7 +14,7 @@ const GOLD := Color("ffd76a")
 ## 段階ごとの設定: 花火の数、1つの粒の数、粒の速さ、散らばる広さ、打ち上げ終わるまでの時間、閃光の数、光の波の数、
 ## 吹き出しを出すまでの秒数
 const TIERS := {
-	1: {"bursts": 6, "count": 36, "speed": 330.0, "spread": 260.0, "span": 1.0, "glints": 0, "waves": 0, "wait": 1.9},
+	1: {"bursts": 3, "count": 36, "speed": 330.0, "spread": 260.0, "span": 0.6, "glints": 0, "waves": 0, "wait": 1.5},
 	2: {"bursts": 10, "count": 40, "speed": 360.0, "spread": 300.0, "span": 1.4, "glints": 8, "waves": 0, "wait": 2.2},
 	3: {"bursts": 10, "count": 40, "speed": 360.0, "spread": 300.0, "span": 1.4, "glints": 8, "waves": 6, "wait": 2.2},
 }
