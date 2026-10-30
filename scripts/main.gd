@@ -21,6 +21,7 @@ const Dist = preload("res://scripts/dist.gd")
 const DistChart = preload("res://scripts/dist_chart.gd")
 const Omikuji = preload("res://scripts/omikuji.gd")
 const Balloon = preload("res://scripts/balloon.gd")
+const GearIcon = preload("res://scripts/gear_icon.gd")
 const Fireworks = preload("res://scripts/fireworks.gd")
 const FONT = preload("res://fonts/MPLUSRounded1c-Bold.ttf")
 
@@ -83,6 +84,9 @@ const CREAM := Color("fff7e6")
 const CEILING_COLOR := Color("e2483d")
 ## 時計の中心（フィールド右上）
 const CLOCK_POS := Vector2(VIEW_SIZE.x - 70, 70)
+## 時計の下の歯車アイコン（表示設定の欄を開く）と、その欄の幅
+const GEAR_POS := Vector2(VIEW_SIZE.x - 70, 162)
+const VIEW_POPUP_W := 380.0
 ## 昼・夕方・夜にフィールド背景へ重ねる色（昼は重ねない）
 const PHASE_TINTS := {
 	FieldClock.Phase.DAY: Color(1, 0.6, 0.25, 0.0),
@@ -123,6 +127,7 @@ var fireworks: Fireworks
 ## あたりで割れた風船を、カットインの暗転が明けたら出し直す
 var balloon_respawn := false
 var clock: FieldClock
+var gear: GearIcon
 var phase_tint: ColorRect
 var phase := FieldClock.phase_at(FieldClock.START_SEC)
 var phase_tween: Tween
@@ -171,6 +176,8 @@ var bubble_label: Label
 var sleep_popup: PanelContainer
 var sleep_time_label: Label
 var sleep_summary: Label
+## 表示設定の欄（収容箱・おみくじを出すかのトグル）
+var view_popup: PanelContainer
 var omikuji_popup: PanelContainer
 var omikuji_check: CheckBox
 var omikuji_chance: SpinBox
@@ -306,6 +313,10 @@ func _build_field() -> void:
 	clock.position = CLOCK_POS
 	clock.time_shown.connect(_on_time_shown)
 	field.add_child(clock)
+
+	gear = GearIcon.new()
+	gear.position = GEAR_POS
+	field.add_child(gear)
 
 	var hud := PanelContainer.new()
 	hud.theme = ui_theme
@@ -510,6 +521,7 @@ func _build_overlays() -> void:
 	_build_fairy_popup(layer)
 	_build_sleep_popup(layer)
 	_build_omikuji_popup(layer)
+	_build_view_popup(layer)
 	_build_dist_popup(layer)
 
 	# カットイン中はタップをここで受け止める
@@ -820,6 +832,77 @@ func _update_sleep_popup() -> void:
 		if f.heals:
 			parts.append("%s +%d" % [f.label, f.sim.sleep_recovery(sleep_minutes)])
 	sleep_summary.text = "起きたときのげんき回復（100まで）：%s" % "・".join(parts)
+
+
+## 表示設定の欄: 画面に出すものを選ぶ。睡眠の設定欄と同じ見た目
+func _build_view_popup(layer: CanvasLayer) -> void:
+	view_popup = PanelContainer.new()
+	view_popup.theme = SettingsPanel.make_theme(ui_theme)
+	view_popup.visible = false
+	view_popup.custom_minimum_size = Vector2(VIEW_POPUP_W, 0)
+	var sb := _style(CREAM, 22, 12)
+	sb.set_border_width_all(3)
+	sb.border_color = Color("e6cf9f")
+	sb.shadow_color = Color(0, 0, 0, 0.3)
+	sb.shadow_size = 8
+	view_popup.add_theme_stylebox_override("panel", sb)
+	layer.add_child(view_popup)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	view_popup.add_child(v)
+
+	var top := HBoxContainer.new()
+	v.add_child(top)
+	var title := _label("表示設定", 22)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(title)
+	var close := _button("×", Color("ffe9bf"), TEXT_DARK)
+	close.custom_minimum_size = Vector2(48, 48)
+	close.add_theme_font_size_override("font_size", 24)
+	close.pressed.connect(_hide_view_popup)
+	top.add_child(close)
+
+
+## 表示設定の欄に「名前　[表示／非表示]」の行を足す。押すたびに on_toggled(on) を呼ぶ
+func _view_toggle(v: VBoxContainer, title: String, on: bool, on_toggled: Callable) -> Button:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	v.add_child(row)
+	var name_label := _label(title, 18)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(120, 48)
+	b.add_theme_font_size_override("font_size", 18)
+	# 押した見た目が残らないよう toggle_mode は使わず、状態は meta に持つ
+	b.pressed.connect(func() -> void:
+		var x: bool = not b.get_meta("on")
+		_style_view_toggle(b, x)
+		on_toggled.call(x))
+	_style_view_toggle(b, on)
+	row.add_child(b)
+	return b
+
+
+func _style_view_toggle(b: Button, on: bool) -> void:
+	b.set_meta("on", on)
+	b.text = "表示" if on else "非表示"
+	if on:
+		_apply_button_styles(b, Color("7cc47f"), Color.WHITE)
+	else:
+		_apply_button_styles(b, Color("e8dcc4"), Color("8a7660"))
+
+
+func _show_view_popup() -> void:
+	view_popup.reset_size()
+	# 歯車の左下に出す
+	var x := clampf(GEAR_POS.x + GearIcon.RADIUS - VIEW_POPUP_W, 12, VIEW_SIZE.x - VIEW_POPUP_W - 12)
+	view_popup.position = Vector2(x, GEAR_POS.y + GearIcon.RADIUS + 12)
+	view_popup.visible = true
+
+
+func _hide_view_popup() -> void:
+	view_popup.visible = false
 
 
 ## おみくじの設定欄: 有効／無効、あたりの確率、連続はずれの上限。睡眠の設定欄と同じ見た目
@@ -1441,6 +1524,7 @@ func _on_reset() -> void:
 	_hide_box_popup()
 	_hide_sleep_popup()
 	_hide_omikuji_popup()
+	_hide_view_popup()
 	_hide_dist_popup()
 	_refresh()
 
@@ -1484,6 +1568,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	_hide_sleep_popup()
 	var had_omikuji_popup := omikuji_popup.visible
 	_hide_omikuji_popup()
+	var had_view_popup := view_popup.visible
+	_hide_view_popup()
 	_hide_dist_popup()
 	for id in piles:
 		if piles[id].hit(p):
@@ -1505,6 +1591,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif had_fairy_popup != i:
 				_show_fairy_popup(i)
 			return
+	if gear.hit(p):
+		if not had_view_popup:
+			_show_view_popup()
+		return
 	if balloon.hit(p):
 		if not had_omikuji_popup:
 			_show_omikuji_popup()
