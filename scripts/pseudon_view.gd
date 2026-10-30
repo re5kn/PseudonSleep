@@ -46,6 +46,11 @@ const TRAIL_STEPS := 48
 ## 光の玉の芯の半径と、まわりの光の色
 const ORB_RADIUS := 6.0
 const ORB_GLOW := Color(1.0, 0.95, 0.6)
+## 光の玉と軌跡の円を描くための白い円の画像の大きさ（ピクセル）。円を1つずつ多角形で描くと
+## 描画命令が玉1個あたり50ほどに増えて重いので、この画像を色をつけて並べ、まとめて描けるようにする
+const DISC_SIZE := 64
+
+static var _disc: ImageTexture
 
 var show_icon := false
 ## 設定パネルを開ける印（「…」の吹き出し）を出すか
@@ -216,7 +221,7 @@ func _draw_orbs(front: bool) -> void:
 			var fade := 1.0 - float(k) / TRAIL_STEPS
 			var d := sin(b)
 			var r := ORB_RADIUS * (0.85 + 0.25 * d) * (0.35 + 0.65 * fade)
-			draw_circle(_orbit_point(i, b), r, Color(ORB_GLOW, (0.75 + 0.25 * d) * 0.35 * fade))
+			_disc_circle(_orbit_point(i, b), r, Color(ORB_GLOW, (0.75 + 0.25 * d) * 0.35 * fade))
 	for i in help_bonus:
 		var a := _orb_angle(i)
 		var depth := sin(a)
@@ -228,9 +233,28 @@ func _draw_orbs(front: bool) -> void:
 		# 外側ほど薄い光を重ねて、白い芯がぼんやり光って見えるようにする
 		var pulse := 1.0 + 0.12 * sin(_t * 5.0 + i * 1.7)
 		for k in 4:
-			draw_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
-		draw_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
-		draw_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
+			_disc_circle(p, ORB_RADIUS * s * pulse * (2.6 - k * 0.45), Color(ORB_GLOW, alpha * (0.1 + k * 0.06)))
+		_disc_circle(p, ORB_RADIUS * s, Color(1, 1, 0.92, alpha))
+		_disc_circle(p + Vector2(-1.5, -1.5) * s, ORB_RADIUS * s * 0.45, Color(1, 1, 1, alpha))
+
+
+## 中心 p・半径 r の円を、白い円の画像（_disc_texture）に color をかけて描く。
+## 同じ画像の四角形は続けて描くとまとめて1回の描画になる
+func _disc_circle(p: Vector2, r: float, color: Color) -> void:
+	draw_texture_rect(_disc_texture(), Rect2(p - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
+
+
+## 白い円の画像（全インスタンスで共有し、最初に使うときに一度だけ作る）。ふちの1ピクセルだけをなめらかにする
+static func _disc_texture() -> ImageTexture:
+	if _disc == null:
+		var img := Image.create(DISC_SIZE, DISC_SIZE, false, Image.FORMAT_RGBA8)
+		var c := DISC_SIZE / 2.0
+		for y in DISC_SIZE:
+			for x in DISC_SIZE:
+				var d := Vector2(x + 0.5 - c, y + 0.5 - c).length()
+				img.set_pixel(x, y, Color(1, 1, 1, clampf(c - d, 0.0, 1.0)))
+		_disc = ImageTexture.create_from_image(img)
+	return _disc
 
 
 ## i 番目の玉が軌道の上でいまいる角度
