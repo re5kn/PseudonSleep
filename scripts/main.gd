@@ -197,8 +197,11 @@ var bubble_label: Label
 var sleep_popup: PanelContainer
 var sleep_time_label: Label
 var sleep_summary: Label
-## 表示設定の欄（収容箱・おみくじを出すかのトグル）
+## 表示設定の欄（収容箱・おみくじ・2体目のパチモンを出すかのトグル）
 var view_popup: PanelContainer
+var box_toggle: Button
+var omikuji_toggle: Button
+var pseudon2_toggle: Button
 var omikuji_popup: PanelContainer
 var omikuji_check: CheckBox
 var omikuji_chance: SpinBox
@@ -991,8 +994,14 @@ func _build_view_popup(layer: CanvasLayer) -> void:
 	close.pressed.connect(_hide_view_popup)
 	top.add_child(close)
 
-	_view_toggle(v, "きのみ・食材収容箱", box_shown, _set_box_shown)
-	_view_toggle(v, "おみくじ", omikuji_shown, _set_omikuji_shown)
+	box_toggle = _view_toggle(v, "きのみ・食材収容箱", box_shown, _set_box_shown)
+	omikuji_toggle = _view_toggle(v, "おみくじ", omikuji_shown, _set_omikuji_shown)
+	pseudon2_toggle = _view_toggle(v, "パチモン2体目", pseudon2_shown, _set_pseudon2_shown)
+	var note := _label("パチモン2体目と、収容箱・おみくじは同時に表示できません。", 15)
+	note.add_theme_color_override("font_color", Color("8a7660"))
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(VIEW_POPUP_W - 40, 0)
+	v.add_child(note)
 
 
 ## 表示設定の欄に「名前　[表示／非表示]」の行を足す。押すたびに on_toggled(on) を呼ぶ
@@ -1041,7 +1050,10 @@ func _hide_view_popup() -> void:
 func _set_box_shown(on: bool) -> void:
 	box_shown = on
 	storage_box.visible = on
-	if not on:
+	_style_view_toggle(box_toggle, on)
+	if on:
+		_set_pseudon2_shown(false)
+	else:
 		_hide_box_popup()
 
 
@@ -1049,8 +1061,28 @@ func _set_box_shown(on: bool) -> void:
 func _set_omikuji_shown(on: bool) -> void:
 	omikuji_shown = on
 	balloon.visible = on
-	if not on:
+	_style_view_toggle(omikuji_toggle, on)
+	if on:
+		_set_pseudon2_shown(false)
+	else:
 		_hide_omikuji_popup()
+
+
+## 2体目のパチモンを出す／隠す。出すときは収容箱とおみくじを隠す（同時には使えない）。
+## 隠しているあいだは休み（おてつだいもげんきの増減もしない）、持っている分と山はそのまま残る
+func _set_pseudon2_shown(on: bool) -> void:
+	if pseudon2_shown == on:
+		return
+	pseudon2_shown = on
+	_style_view_toggle(pseudon2_toggle, on)
+	if on:
+		_set_box_shown(false)
+		_set_omikuji_shown(false)
+	else:
+		_hide_pseudon2_popup()
+	if sleep_popup.visible:
+		_update_sleep_popup()
+	_refresh()
 
 
 ## おみくじの設定欄: 有効／無効、あたりの確率、連続はずれの上限。睡眠の設定欄と同じ見た目
