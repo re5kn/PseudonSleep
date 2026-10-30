@@ -286,10 +286,12 @@ static func miss_run_mean(p: float, ceiling: int) -> float:
 	return m
 
 
-## おてつだいをせずに時間だけ進める（おてつだいを休んでいる妖精用）。休んでいるあいだはげんきも減らない
+## おてつだいをせずに時間だけ進める（おてつだいを休んでいる妖精や、隠している2体目のパチモン用）。
+## 休んでいるあいだはげんきも減らず、次のおてつだいまでの残り時間も止まる
 func idle(seconds: float) -> void:
 	elapsed_sec += seconds
 	genki_origin_sec += seconds
+	next_help_at += seconds
 
 
 ## 今からおてつだいを始め直す。持っている分とスキルのストック・不発カウントは捨てる（げんきはそのまま）

@@ -51,6 +51,8 @@ const ORB_GLOW := Color(1.0, 0.95, 0.6)
 const DISC_SIZE := 64
 
 static var _disc: ImageTexture
+## 色を反転した体の画像（2体目のパチモン用。最初に使うときに一度だけ作る）
+static var _inverted: ImageTexture
 
 var show_icon := false
 ## 設定パネルを開ける印（「…」の吹き出し）を出すか
@@ -62,6 +64,8 @@ var exclaim_anim := 0.0
 var ribbon_tier := 0
 ## おてつだいボーナスの数（Params.help_bonus_count）。その数だけ光の玉が体のまわりを回る
 var help_bonus := 0
+## 体と光の玉の色を反転して描くか（2体目のパチモン）
+var inverted := false
 var _t := 0.0
 
 
@@ -121,7 +125,22 @@ func _draw() -> void:
 
 func _draw_body() -> void:
 	var size := Vector2(TEXTURE.get_width(), TEXTURE.get_height()) * (SPRITE_HEIGHT / TEXTURE.get_height())
-	draw_texture_rect(TEXTURE, Rect2(SPRITE_CENTER - size / 2, size), false)
+	draw_texture_rect(_inverted_texture() if inverted else TEXTURE, Rect2(SPRITE_CENTER - size / 2, size), false)
+
+
+## 体の画像の色（透明度はそのまま）を反転したもの
+static func _inverted_texture() -> ImageTexture:
+	if _inverted == null:
+		var img := TEXTURE.get_image()
+		if img.is_compressed():
+			img.decompress()
+		img.convert(Image.FORMAT_RGBA8)
+		for y in img.get_height():
+			for x in img.get_width():
+				var c := img.get_pixel(x, y)
+				img.set_pixel(x, y, Color(1.0 - c.r, 1.0 - c.g, 1.0 - c.b, c.a))
+		_inverted = ImageTexture.create_from_image(img)
+	return _inverted
 
 
 ## 蝶ネクタイ（BOWTIE_POS を原点にした座標）。足2本・羽2枚・結び目を描き、段階 4 は虹色が流れるように変わる
@@ -241,6 +260,9 @@ func _draw_orbs(front: bool) -> void:
 ## 中心 p・半径 r の円を、白い円の画像（_disc_texture）に color をかけて描く。
 ## 同じ画像の四角形は続けて描くとまとめて1回の描画になる
 func _disc_circle(p: Vector2, r: float, color: Color) -> void:
+	if inverted:
+		# 2体目のパチモンは体と同じく光の玉と軌跡の色も反転する（透明度はそのまま）
+		color = Color(1.0 - color.r, 1.0 - color.g, 1.0 - color.b, color.a)
 	draw_texture_rect(_disc_texture(), Rect2(p - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
 
 

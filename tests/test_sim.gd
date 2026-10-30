@@ -683,6 +683,9 @@ func _test_fairy_sim() -> void:
 	check(s.pending_count() == 0 and Sim.sum(s.on_field) == 0, "持っていた分はフィールドに出ずに消える")
 	s.idle(t * 10)
 	check(s.totals["helps"] == 2 and s.elapsed_sec > t * 12, "休んでいるあいだはおてつだいしない")
+	var left := s.next_help_at - s.elapsed_sec
+	s.idle(t * 3)
+	check(is_equal_approx(s.next_help_at - s.elapsed_sec, left), "休んでいるあいだは次のおてつだいまでの残り時間も止まる")
 	s.restart_help()
 	check(is_equal_approx(s.next_help_at, s.elapsed_sec + t), "始め直すと今からおてつだい1回分あと")
 	# #58 の例: 3時間で82、回復して87、休んで3時間たっても87のまま（パチモンは69）
