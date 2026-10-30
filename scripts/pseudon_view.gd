@@ -64,7 +64,7 @@ var exclaim_anim := 0.0
 var ribbon_tier := 0
 ## おてつだいボーナスの数（Params.help_bonus_count）。その数だけ光の玉が体のまわりを回る
 var help_bonus := 0
-## 体の色を反転して描くか（2体目のパチモン）
+## 体と光の玉の色を反転して描くか（2体目のパチモン）
 var inverted := false
 var _t := 0.0
 
@@ -260,6 +260,9 @@ func _draw_orbs(front: bool) -> void:
 ## 中心 p・半径 r の円を、白い円の画像（_disc_texture）に color をかけて描く。
 ## 同じ画像の四角形は続けて描くとまとめて1回の描画になる
 func _disc_circle(p: Vector2, r: float, color: Color) -> void:
+	if inverted:
+		# 2体目のパチモンは体と同じく光の玉と軌跡の色も反転する（透明度はそのまま）
+		color = Color(1.0 - color.r, 1.0 - color.g, 1.0 - color.b, color.a)
 	draw_texture_rect(_disc_texture(), Rect2(p - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
 
 
