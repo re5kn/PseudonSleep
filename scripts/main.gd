@@ -370,6 +370,7 @@ func _build_field() -> void:
 	# おみくじの風船。あたりの演出を暗転の上に出すため、パチモンと同じ層に置く
 	balloon = Balloon.new()
 	balloon.position = BALLOON_POS
+	balloon.visible = omikuji_shown
 	actor_root.add_child(balloon)
 	fireworks = Fireworks.new()
 	actor_root.add_child(fireworks)
@@ -867,6 +868,7 @@ func _build_view_popup(layer: CanvasLayer) -> void:
 	top.add_child(close)
 
 	_view_toggle(v, "きのみ・食材収容箱", box_shown, _set_box_shown)
+	_view_toggle(v, "おみくじ", omikuji_shown, _set_omikuji_shown)
 
 
 ## 表示設定の欄に「名前　[表示／非表示]」の行を足す。押すたびに on_toggled(on) を呼ぶ
@@ -917,6 +919,14 @@ func _set_box_shown(on: bool) -> void:
 	storage_box.visible = on
 	if not on:
 		_hide_box_popup()
+
+
+## おみくじの風船を出す／隠す。隠しているあいだは「有効にする」でもおみくじを引かない
+func _set_omikuji_shown(on: bool) -> void:
+	omikuji_shown = on
+	balloon.visible = on
+	if not on:
+		_hide_omikuji_popup()
 
 
 ## おみくじの設定欄: 有効／無効、あたりの確率、連続はずれの上限。睡眠の設定欄と同じ見た目
@@ -1609,7 +1619,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not had_view_popup:
 			_show_view_popup()
 		return
-	if balloon.hit(p):
+	if omikuji_shown and balloon.hit(p):
 		if not had_omikuji_popup:
 			_show_omikuji_popup()
 		return
@@ -1654,7 +1664,7 @@ func _on_pseudon_tap() -> void:
 	_spawn_drops(result["items"])
 	if stock > 0:
 		# おみくじはスキル1回（ストック1つ）ごとに引く。結果はカットインの「！」のあとで見せる
-		var lot := omikuji.draw_for(stock)
+		var lot := omikuji.draw_for(stock) if omikuji_shown else {}
 		_start_cutin(pseudon, stock, _skill_lines(sim.params, result["ceiling"], "肌のツヤが%dポイントアップ！" % stock), lot)
 	_refresh()
 
