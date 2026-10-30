@@ -66,6 +66,13 @@ const FAIRY_POPUP_W := 400.0
 const FAIRY_INFO_W := 300.0
 ## 妖精の初期の変身先（へんしんリストの「回復役」の枠）
 const FAIRY_PRESET := 1
+## 2体目のパチモンの位置（島の左下。収容箱のあたり）と、その山を右へ1列に並べる最初の位置・間隔、設定欄の幅。
+## 2体目は色を反転して描き、初期の変身先はへんしんリストの1枠目
+const PSEUDON2_POS := Vector2(130, 760)
+const PILE2_START := Vector2(240, 800)
+const PILE2_GAP := 80.0
+const PSEUDON2_POPUP_W := 400.0
+const PSEUDON2_PRESET := 0
 const MIN_HOURS := 1
 const MAX_HOURS := 24
 const TOAST_SEC := 2.5
@@ -96,6 +103,9 @@ const PHASE_TINTS := {
 const PHASE_FADE_SEC := 0.35
 
 var sim: Sim
+## 2体目のパチモン。おてつだいはするが、設定パネル・記録・収容箱・おみくじは使わない（変身で設定する）
+var sim2: Sim
+var pseudon2_preset := PSEUDON2_PRESET
 var fairies: Array[Fairy] = []
 var fairy_views: Array[FairyView] = []
 ## 計算条件の保存先。設定パネルと妖精の変身で共有する
@@ -107,7 +117,10 @@ var omikuji := Omikuji.new()
 ## 表示設定（初期値はどちらも非表示）
 var box_shown := false
 var omikuji_shown := false
-var piles := {}
+## 2体目のパチモンを出すか（表示設定。初期値は非表示）
+var pseudon2_shown := false
+## フィールドの山（パチモン1体目・2体目ごとに、アイテムの id → ItemPile）
+var piles: Array[Dictionary] = [{}, {}]
 var cutin_active := false
 var cutin_closable := false
 ## カットインで「!」を出しているもの（パチモンか妖精）
@@ -122,6 +135,7 @@ var layers: Array[CanvasLayer] = []
 var ui_theme: Theme
 var actor_root: Node2D
 var pseudon: PseudonView
+var pseudon2: PseudonView
 var storage_box: StorageBox
 var desk: Desk
 var bed: Bed
@@ -171,6 +185,10 @@ var fairy_amount: SpinBox
 var fairy_target_checks: Array[CheckBox] = []
 var fairy_preset: OptionButton
 var fairy_summary: Label
+## 2体目のパチモンの設定欄（変身プルダウンだけ）
+var pseudon2_popup: PanelContainer
+var pseudon2_preset_option: OptionButton
+var pseudon2_summary: Label
 ## 変身の (i) で出す説明の吹き出し
 var fairy_info: PanelContainer
 var fairy_info_text: Label
@@ -210,6 +228,9 @@ var settings_tween: Tween
 func _ready() -> void:
 	sim = Sim.new()
 	presets = Presets.new()
+	sim2 = Sim.new(Params.new())
+	presets.restore(PSEUDON2_PRESET, sim2.params)
+	sim2.reset()
 	for i in FAIRY_REST_OFFSETS.size():
 		var f := Fairy.new("妖精%d" % (i + 1))
 		f.preset = FAIRY_PRESET
@@ -357,6 +378,11 @@ func _build_field() -> void:
 	pseudon = PseudonView.new()
 	pseudon.position = PSEUDON_POS
 	actor_root.add_child(pseudon)
+	pseudon2 = PseudonView.new()
+	pseudon2.position = PSEUDON2_POS
+	pseudon2.inverted = true
+	pseudon2.visible = pseudon2_shown
+	actor_root.add_child(pseudon2)
 	for i in fairies.size():
 		var fv := FairyView.new()
 		fv.rest_pos = PSEUDON_POS + FAIRY_REST_OFFSETS[i]
@@ -524,6 +550,7 @@ func _build_overlays() -> void:
 	layer.add_child(bubble)
 
 	_build_fairy_popup(layer)
+	_build_pseudon2_popup(layer)
 	_build_sleep_popup(layer)
 	_build_omikuji_popup(layer)
 	_build_view_popup(layer)
@@ -679,11 +706,16 @@ func _show_fairy_info(b: Button) -> void:
 	fairy_info.visible = true
 
 
-## 吹き出しの説明。名前は今変身している枠の設定名
+## 吹き出しの説明。名前は設定欄を開いている妖精か2体目のパチモンが今変身している枠の設定名
 func _update_fairy_info_text() -> void:
-	if fairy_popup_index < 0:
+	var k := -1
+	if fairy_popup_index >= 0:
+		k = fairies[fairy_popup_index].preset
+	elif pseudon2_popup.visible:
+		k = pseudon2_preset
+	if k < 0:
 		return
-	var slot := presets.slot_name(fairies[fairy_popup_index].preset)
+	var slot := presets.slot_name(k)
 	fairy_info_text.text = "「%s」のパラメータ変更は以下の手順で行います。\n1. 設定パネルで「%s」に「変身」\n2. 任意のパラメータを設定\n3. 「記憶」を選択" % [slot, slot]
 	fairy_info.reset_size()
 
@@ -743,8 +775,98 @@ func _on_fairy_preset_selected(k: int) -> void:
 
 
 func _update_fairy_summary() -> void:
-	var p := fairies[fairy_popup_index].sim.params
-	fairy_summary.text = "%s：おてつだい時間 %d秒・スキル %.1f%%・ストック %d回・連続不発上限 %d回・最大所持数 %d" % [
+	fairy_summary.text = _params_summary(fairies[fairy_popup_index].sim.params)
+
+
+## 2体目のパチモンの設定欄: 変身プルダウンだけ（妖精の設定欄と同じ見た目）。項目を選んだ時点でその設定を入れる
+func _build_pseudon2_popup(layer: CanvasLayer) -> void:
+	pseudon2_popup = PanelContainer.new()
+	pseudon2_popup.theme = SettingsPanel.make_theme(ui_theme)
+	pseudon2_popup.visible = false
+	pseudon2_popup.custom_minimum_size = Vector2(PSEUDON2_POPUP_W, 0)
+	var sb := _style(CREAM, 22, 12)
+	sb.set_border_width_all(3)
+	sb.border_color = Color("e6cf9f")
+	sb.shadow_color = Color(0, 0, 0, 0.3)
+	sb.shadow_size = 8
+	pseudon2_popup.add_theme_stylebox_override("panel", sb)
+	layer.add_child(pseudon2_popup)
+	# 変身の (i) の吹き出しを設定欄より手前に出す
+	layer.move_child(pseudon2_popup, fairy_info.get_index())
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	pseudon2_popup.add_child(v)
+
+	var top := HBoxContainer.new()
+	v.add_child(top)
+	var title := _label("パチモン2の設定", 22)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(title)
+	var close := _button("×", Color("ffe9bf"), TEXT_DARK)
+	close.custom_minimum_size = Vector2(48, 48)
+	close.add_theme_font_size_override("font_size", 24)
+	close.pressed.connect(_hide_pseudon2_popup)
+	top.add_child(close)
+
+	var preset_row := HBoxContainer.new()
+	preset_row.add_theme_constant_override("separation", 8)
+	v.add_child(preset_row)
+	preset_row.add_child(_label("変身", 18))
+	preset_row.add_child(_info_button())
+	pseudon2_preset_option = OptionButton.new()
+	pseudon2_preset_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pseudon2_preset_option.focus_mode = Control.FOCUS_NONE
+	pseudon2_preset_option.fit_to_longest_item = false
+	pseudon2_preset_option.clip_text = true
+	pseudon2_preset_option.add_theme_font_size_override("font_size", 18)
+	pseudon2_preset_option.get_popup().add_theme_font_size_override("font_size", 20)
+	pseudon2_preset_option.item_selected.connect(_on_pseudon2_preset_selected)
+	preset_row.add_child(pseudon2_preset_option)
+
+	pseudon2_summary = _label("", 15)
+	pseudon2_summary.add_theme_color_override("font_color", Color("8a7660"))
+	pseudon2_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pseudon2_summary.custom_minimum_size = Vector2(PSEUDON2_POPUP_W - 40, 0)
+	v.add_child(pseudon2_summary)
+
+
+func _show_pseudon2_popup() -> void:
+	pseudon2_preset_option.clear()
+	for k in Presets.SLOT_COUNT:
+		pseudon2_preset_option.add_item(presets.slot_name(k), k)
+		pseudon2_preset_option.set_item_disabled(k, not presets.is_saved(k))
+	pseudon2_preset_option.select(pseudon2_preset)
+	pseudon2_summary.text = _params_summary(sim2.params)
+	pseudon2_popup.reset_size()
+	# 2体目の右どなりに、操作パネルの少し上まで下げて出す（1体目に重ならないように）
+	var s := pseudon2_popup.get_combined_minimum_size()
+	var x := clampf(PSEUDON2_POS.x + PseudonView.BODY_RX + 24, 12, VIEW_SIZE.x - s.x - 12)
+	pseudon2_popup.position = Vector2(x, PANEL_TOP - 16 - s.y)
+	pseudon2_popup.visible = true
+	_refresh()
+
+
+func _hide_pseudon2_popup() -> void:
+	if not pseudon2_popup.visible:
+		return
+	pseudon2_popup.visible = false
+	fairy_info.visible = false
+	_refresh()
+
+
+func _on_pseudon2_preset_selected(k: int) -> void:
+	if not presets.restore(k, sim2.params):
+		return
+	pseudon2_preset = k
+	sim2.clamp_stock()
+	pseudon2_summary.text = _params_summary(sim2.params)
+	_update_fairy_info_text()
+	_refresh()
+
+
+## 変身先の設定のまとめ（妖精・2体目のパチモンの設定欄に出す）
+func _params_summary(p: Params) -> String:
+	return "%s：おてつだい時間 %d秒・スキル %.1f%%・ストック %d回・連続不発上限 %d回・最大所持数 %d" % [
 		p.pseudon_name, int(p.help_sec()), p.skill_chance() * 100.0, p.max_skill_stock, p.skill_ceiling, p.carry_limit()]
 
 
@@ -833,6 +955,8 @@ func _update_sleep_popup() -> void:
 		sleep_summary.text = "げんきは81以上で固定のため回復しません。おてつだいは進みます。"
 		return
 	var parts := PackedStringArray(["パチモン +%d" % sim.sleep_recovery(sleep_minutes)])
+	if pseudon2_shown:
+		parts.append("パチモン2 +%d" % sim2.sleep_recovery(sleep_minutes))
 	for f in fairies:
 		if f.heals:
 			parts.append("%s +%d" % [f.label, f.sim.sleep_recovery(sleep_minutes)])
@@ -1119,6 +1243,7 @@ func _on_hud_meta_clicked(meta: Variant) -> void:
 		return
 	_hide_box_popup()
 	_hide_fairy_popup()
+	_hide_pseudon2_popup()
 	_hide_sleep_popup()
 	dist_popup_kind = kind
 	_update_dist_popup()
@@ -1259,6 +1384,7 @@ func _on_sleep() -> void:
 	_hide_sleep_popup()
 	_hide_box_popup()
 	sim.sleep(sleep_minutes)
+	sim2.sleep(sleep_minutes, pseudon2_shown)
 	for f in fairies:
 		f.sim.sleep(sleep_minutes, f.heals and _fairies_shown())
 	clock.show_elapsed(sim.elapsed_sec)
@@ -1402,8 +1528,12 @@ func _on_params_changed() -> void:
 	_refresh()
 
 
-## 設定パネルで枠 k に記憶したら、その枠に変身している妖精にもすぐ入れ直す
+## 設定パネルで枠 k に記憶したら、その枠に変身している妖精と2体目のパチモンにもすぐ入れ直す
 func _on_preset_stored(k: int) -> void:
+	if pseudon2_preset == k and presets.restore(k, sim2.params):
+		sim2.clamp_stock()
+		if pseudon2_popup.visible:
+			pseudon2_summary.text = _params_summary(sim2.params)
 	for f in fairies:
 		if f.preset == k and presets.restore(k, f.sim.params):
 			f.sim.clamp_stock()
@@ -1412,10 +1542,10 @@ func _on_preset_stored(k: int) -> void:
 	_refresh()
 
 
-## チーム全体の設定（おてつだいボーナスの数・いいキャンプチケット）をパチモンと妖精の全員に入れる。
+## チーム全体の設定（おてつだいボーナスの数・いいキャンプチケット）をパチモン（2体とも）と妖精の全員に入れる。
 ## 次の「すすめる」から反映される
 func _set_team(key: String, value: Variant) -> void:
-	var all: Array[Sim] = [sim]
+	var all: Array[Sim] = [sim, sim2]
 	for f in fairies:
 		all.append(f.sim)
 	for s in all:
@@ -1425,6 +1555,8 @@ func _set_team(key: String, value: Variant) -> void:
 	settings.refresh_summary()
 	if fairy_popup_index >= 0:
 		_update_fairy_summary()
+	if pseudon2_popup.visible:
+		pseudon2_summary.text = _params_summary(sim2.params)
 	_refresh()
 
 
@@ -1498,6 +1630,11 @@ func _on_advance() -> void:
 		return
 	_hide_box_popup()
 	sim.advance(hours * 3600.0)
+	# 2体目は出しているときだけおてつだいする
+	if pseudon2_shown:
+		sim2.advance(hours * 3600.0)
+	else:
+		sim2.idle(hours * 3600.0)
 	for f in fairies:
 		if f.heals and _fairies_shown():
 			f.sim.advance(hours * 3600.0)
@@ -1510,6 +1647,7 @@ func _on_advance() -> void:
 func _on_genki_toggled() -> void:
 	var decay := sim.genki_mode == Sim.GenkiMode.ALWAYS_HIGH
 	sim.set_genki_mode(Sim.GenkiMode.DECAY if decay else Sim.GenkiMode.ALWAYS_HIGH)
+	sim2.set_genki_mode(sim.genki_mode)
 	for f in fairies:
 		f.sim.set_genki_mode(sim.genki_mode)
 		# 「81以上で固定」のあいだ妖精はいないので、出てきた時点からおてつだいを始める
@@ -1525,6 +1663,7 @@ func _on_genki_toggled() -> void:
 ## げんきの初期値を変えたとき。パチモンも妖精も、今のげんきがその値から減り始め直す
 func _on_genki_start_changed(x: float) -> void:
 	sim.set_genki_start(int(x))
+	sim2.set_genki_start(int(x))
 	for f in fairies:
 		f.sim.set_genki_start(int(x))
 	if sleep_popup.visible:
@@ -1536,13 +1675,15 @@ func _on_reset() -> void:
 	if cutin_active:
 		return
 	sim.reset()
+	sim2.reset()
 	for f in fairies:
 		f.sim.reset()
 	omikuji.reset()
 	clock.show_elapsed(sim.elapsed_sec, false)
-	for id in piles:
-		piles[id].queue_free()
-	piles.clear()
+	for d in piles:
+		for id in d:
+			d[id].queue_free()
+		d.clear()
 	for t in toast_box.get_children():
 		t.queue_free()
 	_hide_box_popup()
@@ -1550,6 +1691,7 @@ func _on_reset() -> void:
 	_hide_omikuji_popup()
 	_hide_view_popup()
 	_hide_dist_popup()
+	_hide_pseudon2_popup()
 	_refresh()
 
 
@@ -1588,6 +1730,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	_hide_box_popup()
 	var had_fairy_popup := fairy_popup_index
 	_hide_fairy_popup()
+	var had_pseudon2_popup := pseudon2_popup.visible
+	_hide_pseudon2_popup()
 	var had_sleep_popup := sleep_popup.visible
 	_hide_sleep_popup()
 	var had_omikuji_popup := omikuji_popup.visible
@@ -1595,17 +1739,25 @@ func _unhandled_input(event: InputEvent) -> void:
 	var had_view_popup := view_popup.visible
 	_hide_view_popup()
 	_hide_dist_popup()
-	for id in piles:
-		if piles[id].hit(p):
-			swiped[id] = true
-			_collect(id)
-			return
+	for k in _pile_owners():
+		for id in piles[k]:
+			if piles[k][id].hit(p):
+				swiped["%d:%s" % [k, id]] = true
+				_collect(k, id)
+				return
 	if pseudon.hit(p):
 		# アイコンが出ていなければ設定パネルを開け閉めする
 		if sim.has_icon():
 			_on_pseudon_tap()
 		else:
 			_set_settings_open(not settings_open)
+		return
+	if pseudon2_shown and pseudon2.hit(p):
+		# アイコンが出ていなければ設定欄（変身）を開け閉めする
+		if sim2.has_icon():
+			_on_pseudon2_tap()
+		elif not had_pseudon2_popup:
+			_show_pseudon2_popup()
 		return
 	for i in fairies.size():
 		if _fairies_shown() and fairy_views[i].hit(p):
@@ -1651,21 +1803,32 @@ func _on_swipe(p: Vector2) -> void:
 		var q := swipe_last.lerp(p, float(i) / steps)
 		if q.y > PANEL_TOP:
 			continue
-		for id in piles:
-			if not swiped.has(id) and piles[id].hit(q):
-				swiped[id] = true
-				_collect(id)
+		for k in _pile_owners():
+			for id in piles[k]:
+				if not swiped.has("%d:%s" % [k, id]) and piles[k][id].hit(q):
+					swiped["%d:%s" % [k, id]] = true
+					_collect(k, id)
 	swipe_last = p
 
 
 func _on_pseudon_tap() -> void:
 	var result := sim.drop()
 	var stock: int = result["stock"]
-	_spawn_drops(result["items"])
+	_spawn_drops(0, result["items"])
 	if stock > 0:
 		# おみくじはスキル1回（ストック1つ）ごとに引く。結果はカットインの「！」のあとで見せる
 		var lot := omikuji.draw_for(stock) if omikuji_shown else {}
 		_start_cutin(pseudon, stock, _skill_lines(sim.params, result["ceiling"], "肌のツヤが%dポイントアップ！" % stock), lot)
+	_refresh()
+
+
+## 2体目のパチモンをタップしたとき。持っていた分は2体目の前の山に出す（おみくじは引かない）
+func _on_pseudon2_tap() -> void:
+	var result := sim2.drop()
+	var stock: int = result["stock"]
+	_spawn_drops(1, result["items"])
+	if stock > 0:
+		_start_cutin(pseudon2, stock, _skill_lines(sim2.params, result["ceiling"], "肌のツヤが%dポイントアップ！" % stock))
 	_refresh()
 
 
@@ -1681,6 +1844,9 @@ func _on_fairy_tap(i: int) -> void:
 		if f.targets[0]:
 			sim.add_genki(amount)
 			names.append("パチモン")
+			if pseudon2_shown:
+				sim2.add_genki(amount)
+				names.append("パチモン2")
 		for j in fairies.size():
 			if f.targets[j + 1] and fairies[j].heals and _fairies_shown():
 				fairies[j].sim.add_genki(amount)
@@ -1700,54 +1866,73 @@ func _fairies_shown() -> bool:
 	return sim.genki_mode == Sim.GenkiMode.DECAY
 
 
-func _collect(id: String) -> void:
-	var pile: ItemPile = piles[id]
-	var got := sim.collect(id)
+## パチモン k 体目（0 か 1）の山 id を回収する。2体目の分は2体目の収容箱（見えない）に入る
+func _collect(k: int, id: String) -> void:
+	var s := _sim_of(k)
+	var pile: ItemPile = piles[k][id]
+	var got := s.collect(id)
 	if got > 0:
 		pile.set_count(pile.count - got)
-		_toast(id, "×%d" % got)
+		_toast(s, id, "×%d" % got)
 	else:
-		var kind_name := "きのみ" if sim.params.is_berry(id) else "食材"
-		_toast(id, "%sがいっぱい" % kind_name)
+		var kind_name := "きのみ" if s.params.is_berry(id) else "食材"
+		_toast(s, id, "%sがいっぱい" % kind_name)
 		pile.bounce()
 	_refresh()
 
 
 # ---------------------------------------------------------------- ぽこぽこ
 
-func _pile_position(id: String) -> Vector2:
-	var ids := sim.params.item_ids()
+func _sim_of(k: int) -> Sim:
+	return sim if k == 0 else sim2
+
+
+func _view_of(k: int) -> PseudonView:
+	return pseudon if k == 0 else pseudon2
+
+
+## タップやなぞりで回収できる山の持ち主（2体目を隠しているあいだは1体目だけ）
+func _pile_owners() -> Array[int]:
+	return [0, 1] if pseudon2_shown else [0]
+
+
+## パチモン k 体目の山を置く位置。1体目は足もと、2体目は右どなりから1体目の山の手前に並べる
+func _pile_position(k: int, id: String) -> Vector2:
+	var ids := _sim_of(k).params.item_ids()
 	var i := ids.find(id)
+	if k == 1:
+		return PILE2_START + Vector2(i * PILE2_GAP, 0)
 	return Vector2(PSEUDON_POS.x + (i - (ids.size() - 1) / 2.0) * PILE_GAP, PILE_Y)
 
 
-func _get_pile(id: String) -> ItemPile:
-	if not piles.has(id):
+func _get_pile(k: int, id: String) -> ItemPile:
+	if not piles[k].has(id):
 		var pile := ItemPile.new()
 		pile.item_id = id
-		pile.position = _pile_position(id)
+		pile.position = _pile_position(k, id)
 		actor_root.add_child(pile)
 		actor_root.move_child(pile, 0)
-		piles[id] = pile
-	return piles[id]
+		piles[k][id] = pile
+	return piles[k][id]
 
 
-func _spawn_drops(items: Dictionary) -> void:
+## パチモン k 体目が持っていた分を手から足もとの山へ飛ばす
+func _spawn_drops(k: int, items: Dictionary) -> void:
 	var delay := 0.0
-	for id in sim.params.item_ids():
+	for id in _sim_of(k).params.item_ids():
 		var n := int(items.get(id, 0))
 		if n <= 0:
 			continue
-		var pile := _get_pile(id)
+		var pile := _get_pile(k, id)
 		# 個数が多いときは何個かずつまとめて飛ばす
 		var hops := mini(n, 6)
-		for k in hops:
-			var amount := n / hops + (1 if k < n % hops else 0)
-			_launch(id, amount, pile, delay, k)
+		for j in hops:
+			var amount := n / hops + (1 if j < n % hops else 0)
+			_launch(k, id, amount, pile, delay, j)
 			delay += 0.11
 
 
-func _launch(id: String, amount: int, pile: ItemPile, delay: float, k: int) -> void:
+func _launch(owner: int, id: String, amount: int, pile: ItemPile, delay: float, k: int) -> void:
 	var fly := FlyingItem.new()
 	fly.item_id = id
 	fly.visible = false
@@ -1758,13 +1943,13 @@ func _launch(id: String, amount: int, pile: ItemPile, delay: float, k: int) -> v
 	# 出す瞬間の手の位置から飛ばす（体はふわふわ動いている）
 	var from := {"pos": Vector2.ZERO}
 	tw.tween_callback(func():
-		from["pos"] = pseudon.hand_position(id)
+		from["pos"] = _view_of(owner).hand_position(id)
 		fly.position = from["pos"]
 		fly.visible = true
 	)
 	tw.tween_method(func(t: float): fly.position = _arc(from["pos"], to, t), 0.0, 1.0, 0.42)
 	tw.tween_callback(func():
-		var on_field := int(sim.on_field.get(id, 0))
+		var on_field := int(_sim_of(owner).on_field.get(id, 0))
 		pile.set_count(mini(pile.count + amount, on_field))
 		pile.bounce()
 		fly.queue_free()
@@ -1871,7 +2056,7 @@ func _pop_balloon(tier: int) -> float:
 
 # ---------------------------------------------------------------- 表示
 
-func _toast(id: String, text: String) -> void:
+func _toast(s: Sim, id: String, text: String) -> void:
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_END
@@ -1879,7 +2064,7 @@ func _toast(id: String, text: String) -> void:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(ItemIcon.new(id))
-	row.add_child(_label("%s %s" % [sim.params.item_name(id), text], 18))
+	row.add_child(_label("%s %s" % [s.params.item_name(id), text], 18))
 	panel.add_child(row)
 	toast_box.add_child(panel)
 	var tw := panel.create_tween()
@@ -1940,6 +2125,8 @@ func _sync_balloon(now := false) -> void:
 func _refresh() -> void:
 	pseudon.ribbon_tier = sim.params.ribbon_tier()
 	pseudon.help_bonus = sim.params.help_bonus_count
+	pseudon2.ribbon_tier = sim2.params.ribbon_tier()
+	pseudon2.help_bonus = sim2.params.help_bonus_count
 	hours_label.text = "%d時間" % hours
 	advance_button.text = "%d時間分すすめる" % hours
 	genki_button.text = "げんき：81以上で固定" if sim.genki_mode == Sim.GenkiMode.ALWAYS_HIGH else "げんき：%dから減少" % sim.genki_start
@@ -1947,6 +2134,8 @@ func _refresh() -> void:
 	var genki := "81以上"
 	if sim.genki_mode == Sim.GenkiMode.DECAY:
 		genki = str(sim.genki_at(sim.elapsed_sec))
+		if pseudon2_shown:
+			genki += "・パチモン2 %d" % sim2.genki_at(sim2.elapsed_sec)
 		for f in fairies:
 			if f.heals:
 				genki += "・%s %d" % [f.label, f.sim.genki_at(f.sim.elapsed_sec)]
@@ -1980,6 +2169,12 @@ func _refresh() -> void:
 	pseudon.show_icon = sim.has_icon()
 	pseudon.show_menu = not pseudon.show_icon and not settings_open
 	pseudon.icon_full = sim.is_full()
+	pseudon2.visible = pseudon2_shown
+	pseudon2.show_icon = sim2.has_icon()
+	pseudon2.show_menu = not pseudon2.show_icon and not pseudon2_popup.visible
+	pseudon2.icon_full = sim2.is_full()
+	for id in piles[1]:
+		piles[1][id].visible = pseudon2_shown
 	for i in fairies.size():
 		var f := fairies[i]
 		var fv := fairy_views[i]
