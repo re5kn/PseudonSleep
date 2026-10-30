@@ -158,6 +158,9 @@ var log_open := false
 var log_slide := 0.0
 var log_tween: Tween
 var log_title: Label
+## 記録パネルで出しているパチモン（0＝1体目、1＝2体目）と、それを切り替えるボタン（2体目を出しているときだけ見せる）
+var log_who := 0
+var log_who_button: Button
 var log_scroll: ScrollContainer
 var log_table: HelpLogTable
 var hours_label: Label
@@ -1463,6 +1466,12 @@ func _build_log_view() -> void:
 	log_title = _label("", 24)
 	log_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(log_title)
+	log_who_button = Button.new()
+	log_who_button.custom_minimum_size = Vector2(96, 56)
+	log_who_button.focus_mode = Control.FOCUS_NONE
+	log_who_button.add_theme_font_size_override("font_size", 20)
+	log_who_button.pressed.connect(func() -> void: _set_log_who(1 - log_who))
+	top.add_child(log_who_button)
 	var close := _button("×", Color("ffe9bf"), TEXT_DARK)
 	close.custom_minimum_size = Vector2(56, 56)
 	close.add_theme_font_size_override("font_size", 28)
@@ -1502,11 +1511,28 @@ func _set_log_slide(t: float) -> void:
 	_center_layers()
 
 
+## 記録パネルに出すパチモンを切り替える（1体目⇔2体目）
+func _set_log_who(k: int) -> void:
+	log_who = k
+	_update_log()
+	log_scroll.scroll_vertical = 0
+
+
 ## 開いたままでも「すすめる」やリセットに合わせて記録を更新する
 func _update_log() -> void:
-	log_title.text = "おてつだいの記録（全%d回）" % sim.totals["helps"]
-	var slots: Array = sim.params.ingredients.map(func(ing: Dictionary) -> String: return ing["id"])
-	log_table.set_log(sim.help_log, slots, sim.params.active_ingredients().size())
+	# 2体目を隠したら1体目の記録に戻す
+	if not pseudon2_shown:
+		log_who = 0
+	log_who_button.visible = pseudon2_shown
+	log_who_button.text = "%d体目" % (log_who + 1)
+	if log_who == 0:
+		_apply_button_styles(log_who_button, Color("ffe9bf"), TEXT_DARK)
+	else:
+		_apply_button_styles(log_who_button, Color("5a4f7a"), Color.WHITE)
+	var s := _sim_of(log_who)
+	log_title.text = "おてつだいの記録（全%d回）" % s.totals["helps"]
+	var slots: Array = s.params.ingredients.map(func(ing: Dictionary) -> String: return ing["id"])
+	log_table.set_log(s.help_log, slots, s.params.active_ingredients().size())
 
 
 ## 設定パネルは画面の左端に付けるので、中央寄せのずらし（_layer）は使わない
