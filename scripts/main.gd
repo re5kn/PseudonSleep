@@ -104,6 +104,9 @@ var hours := 3
 ## 睡眠時間（分）。初期値は8時間30分（げんきが100回復する長さ）
 var sleep_minutes := Sim.SLEEP_FULL_MIN
 var omikuji := Omikuji.new()
+## 表示設定（初期値はどちらも非表示）
+var box_shown := false
+var omikuji_shown := false
 var piles := {}
 var cutin_active := false
 var cutin_closable := false
@@ -298,6 +301,7 @@ func _build_field() -> void:
 	storage_box = StorageBox.new()
 	storage_box.label = "きのみ・食材収容箱"
 	storage_box.position = BOX_POS
+	storage_box.visible = box_shown
 	field.add_child(storage_box)
 
 	desk = Desk.new()
@@ -862,6 +866,8 @@ func _build_view_popup(layer: CanvasLayer) -> void:
 	close.pressed.connect(_hide_view_popup)
 	top.add_child(close)
 
+	_view_toggle(v, "きのみ・食材収容箱", box_shown, _set_box_shown)
+
 
 ## 表示設定の欄に「名前　[表示／非表示]」の行を足す。押すたびに on_toggled(on) を呼ぶ
 func _view_toggle(v: VBoxContainer, title: String, on: bool, on_toggled: Callable) -> Button:
@@ -903,6 +909,14 @@ func _show_view_popup() -> void:
 
 func _hide_view_popup() -> void:
 	view_popup.visible = false
+
+
+## 収容箱を出す／隠す。隠しても、きのみ・食材は収容箱に入る（タップで中身を見られなくなるだけ）
+func _set_box_shown(on: bool) -> void:
+	box_shown = on
+	storage_box.visible = on
+	if not on:
+		_hide_box_popup()
 
 
 ## おみくじの設定欄: 有効／無効、あたりの確率、連続はずれの上限。睡眠の設定欄と同じ見た目
@@ -1606,7 +1620,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if desk.hit(p):
 		_set_log_open(not log_open)
 		return
-	if storage_box.hit(p):
+	if box_shown and storage_box.hit(p):
 		if not had_popup:
 			_show_box_popup(storage_box)
 		return
